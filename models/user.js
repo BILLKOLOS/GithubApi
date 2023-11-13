@@ -1,15 +1,21 @@
-const mongoose = require('mongoose');
-const passportLocalMongoose = require('passport-local-mongoose');
+const Sequelize = require('sequelize');
 
-const userSchema = new mongoose.Schema({
-  username: String,
-  password: String,
+const sequelize = new Sequelize('github_api', 'postgres', 'Bill2020$2019', {
+  host: 'localhost',
+  dialect: 'postgres',
 });
 
-// Plugin Passport-Local Mongoose for additional functionality
-userSchema.plugin(passportLocalMongoose);
-
-// Create the User model
-const User = mongoose.model('User', userSchema);
+const User = sequelize.define('user', {
+  username: {
+    type: Sequelize.STRING,
+    unique: true,
+    allowNull: false,
+  },
+  password: {
+    type: Sequelize.STRING,
+    allowNull: false,
+  },
+});
 
 module.exports = User;
+

@@ -4,6 +4,8 @@ const passport = require('passport');
 const LocalStrategy = require('passport-local').Strategy;
 const session = require('express-session');
 const bodyParser = require('body-parser');
+const { Sequelize, DataTypes } = require('sequelize');
+const bcrypt = require('bcrypt');
 
 const app = express();
 const port = 3000;
@@ -16,20 +18,53 @@ app.use(passport.initialize());
 app.use(passport.session());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// In-memory user database (replace with a database in a real application)
-const users = [
-  { id: 1, username: 'user1', password: 'password1' },
-  { id: 2, username: 'user2', password: 'password2' },
-];
+// Set up Sequelize for PostgreSQL
+const sequelize = new Sequelize('github_api', 'postgres', 'Bill2020$2019', {
+  host: 'localhost',
+  dialect: 'postgres',
+});
+
+// Define the User model
+const User = sequelize.define('User', {
+  username: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    unique: true,
+  },
+  password: {
+    type: DataTypes.STRING,
+    allowNull: false,
+  },
+});
+
+// Sync the model with the database
+sequelize.sync()
+  .then(() => {
+    console.log('Database synced');
+  })
+  .catch((err) => {
+    console.error('Error syncing database:', err);
+  });
 
 // Passport.js local strategy
 passport.use(new LocalStrategy(
-  (username, password, done) => {
-    const user = users.find(u => u.username === username && u.password === password);
-    if (user) {
-      return done(null, user);
-    } else {
-      return done(null, false, { message: 'Incorrect username or password.' });
+  async (username, password, done) => {
+    try {
+      const user = await User.findOne({ where: { username } });
+
+      if (user) {
+        const isPasswordMatch = await bcrypt.compare(password, user.password);
+
+        if (isPasswordMatch) {
+          return done(null, user);
+        } else {
+          return done(null, false, { message: 'Incorrect username or password.' });
+        }
+      } else {
+        return done(null, false, { message: 'Incorrect username or password.' });
+      }
+    } catch (error) {
+      return done(error);
     }
   }
 ));
@@ -39,9 +74,18 @@ passport.serializeUser((user, done) => {
   done(null, user.id);
 });
 
-passport.deserializeUser((id, done) => {
-  const user = users.find(u => u.id === id);
-  done(null, user);
+passport.deserializeUser(async (id, done) => {
+  try {
+    const user = await User.findByPk(id);
+
+    if (user) {
+      done(null, user);
+    } else {
+      done(null, false);
+    }
+  } catch (error) {
+    done(error);
+  }
 });
 
 // Middleware to check if a user is authenticated
@@ -241,26 +285,32 @@ app.get('/signup', (req, res) => {
 });
 
 // Handle signup form submission
-app.post('/signup', (req, res) => {
+app.post('/signup', async (req, res) => {
   const { username, password } = req.body;
 
-  // Check if the username is already taken
-  if (users.some(user => user.username === username)) {
-    return res.send('<h2>Error: Username already taken. Please choose another.</h2>');
+  try {
+    // Check if the username is already taken
+    const existingUser = await User.findOne({ where: { username } });
+
+    if (existingUser) {
+      return res.send('<h2>Error: Username already taken. Please choose another.</h2>');
+    }
+
+    // Hash the password before saving to the database
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create a new user
+    const newUser = await User.create({
+      username,
+      password: hashedPassword,
+    });
+
+    // Redirect to the login page after successful signup
+    res.redirect('/login');
+  } catch (error) {
+    console.error(error);
+    errorResponse(res, 500, 'Internal Server Error');
   }
-
-  // Create a new user
-  const newUser = {
-    id: users.length + 1,
-    username,
-    password,
-  };
-
-  // Add the new user to the users array (replace with a database operation in a real application)
-  users.push(newUser);
-
-  // Redirect to the login page after successful signup
-  res.redirect('/login');
 });
 
 // Login route
@@ -300,3 +350,4 @@ app.get('/protected', isLoggedIn, (req, res) => {
 app.listen(port, '0.0.0.0', () => {
   console.log(`Server listening at http://0.0.0.0:${port}`);
 });
+
