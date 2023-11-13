@@ -3,6 +3,7 @@ const axios = require('axios');
 const passport = require('passport');
 const LocalStrategy = require('passport-local').Strategy;
 const session = require('express-session');
+const bodyParser = require('body-parser');
 
 const app = express();
 const port = 3000;
@@ -13,6 +14,7 @@ app.use(session({ secret: 'your-secret-key', resave: false, saveUninitialized: f
 // Set up Passport.js
 app.use(passport.initialize());
 app.use(passport.session());
+app.use(bodyParser.urlencoded({ extended: true }));
 
 // In-memory user database (replace with a database in a real application)
 const users = [
@@ -49,6 +51,9 @@ function isLoggedIn(req, res, next) {
   }
   res.redirect('/login');
 }
+
+// Input validation
+const isValidUsername = (username) => /^[a-zA-Z\d](?:[a-zA-Z\d]|-(?=[a-zA-Z\d])){0,38}$/.test(username);
 
 // Helper functions
 const errorResponse = (res, status, message) => res.status(status).send(`<h2>Error: ${message}</h2>`);
@@ -95,7 +100,7 @@ app.get('/', (req, res) => {
       <button type="submit">Get Info</button>
     </form>
     <br>
-    <a href="/login">Login</a> | <a href="/logout">Logout</a> | <a href="/protected">Protected Route</a>
+    <a href="/login">Login</a> | <a href="/logout">Logout</a> | <a href="/protected">Protected Route</a> | <a href="/signup">Sign Up</a>
   `);
 });
 
@@ -219,6 +224,45 @@ app.get('/github/repos/:owner/:repo/contributors', async (req, res) => {
   }
 });
 
+// Signup route
+app.get('/signup', (req, res) => {
+  res.send(`
+    <h1>Sign Up</h1>
+    <form action="/signup" method="post">
+      <label for="username">Username:</label>
+      <input type="text" id="username" name="username" required>
+      <label for="password">Password:</label>
+      <input type="password" id="password" name="password" required>
+      <button type="submit">Sign Up</button>
+    </form>
+    <br>
+    <a href="/login">Login</a> | <a href="/logout">Logout</a> | <a href="/protected">Protected Route</a> | <a href="/">Home</a>
+  `);
+});
+
+// Handle signup form submission
+app.post('/signup', (req, res) => {
+  const { username, password } = req.body;
+
+  // Check if the username is already taken
+  if (users.some(user => user.username === username)) {
+    return res.send('<h2>Error: Username already taken. Please choose another.</h2>');
+  }
+
+  // Create a new user
+  const newUser = {
+    id: users.length + 1,
+    username,
+    password,
+  };
+
+  // Add the new user to the users array (replace with a database operation in a real application)
+  users.push(newUser);
+
+  // Redirect to the login page after successful signup
+  res.redirect('/login');
+});
+
 // Login route
 app.get('/login', (req, res) => {
   res.send(`
@@ -230,6 +274,8 @@ app.get('/login', (req, res) => {
       <input type="password" id="password" name="password" required>
       <button type="submit">Login</button>
     </form>
+    <br>
+    <a href="/signup">Sign Up</a> | <a href="/logout">Logout</a> | <a href="/protected">Protected Route</a> | <a href="/">Home</a>
   `);
 });
 
@@ -254,5 +300,3 @@ app.get('/protected', isLoggedIn, (req, res) => {
 app.listen(port, '0.0.0.0', () => {
   console.log(`Server listening at http://0.0.0.0:${port}`);
 });
-
-
