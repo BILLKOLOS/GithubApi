@@ -1,7 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const passport = require('passport');
-const LocalStrategy = require('passport-local').Strategy;
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const session = require('express-session');
 const bodyParser = require('body-parser');
 const { Sequelize, DataTypes } = require('sequelize');
@@ -46,46 +46,24 @@ sequelize.sync()
     console.error('Error syncing database:', err);
   });
 
-// Passport.js local strategy
-passport.use(new LocalStrategy(
-  async (username, password, done) => {
-    try {
-      const user = await User.findOne({ where: { username } });
-
-      if (user) {
-        const isPasswordMatch = await bcrypt.compare(password, user.password);
-
-        if (isPasswordMatch) {
-          return done(null, user);
-        } else {
-          return done(null, false, { message: 'Incorrect username or password.' });
-        }
-      } else {
-        return done(null, false, { message: 'Incorrect username or password.' });
-      }
-    } catch (error) {
-      return done(error);
-    }
-  }
-));
+// Configure Passport for Google Strategy
+passport.use(new GoogleStrategy({
+  clientID: '809824786204-79v8v18h15c3pdg53fmthn03abgatard.apps.googleusercontent.com',
+  clientSecret: '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',
+  callbackURL: 'http://localhost:3000/auth/google/callback'
+},
+function(accessToken, refreshToken, profile, done) {
+  // Save user information in your database or use it as needed
+  return done(null, profile);
+}));
 
 // Serialize and deserialize user for session support
 passport.serializeUser((user, done) => {
-  done(null, user.id);
+  done(null, user);
 });
 
-passport.deserializeUser(async (id, done) => {
-  try {
-    const user = await User.findByPk(id);
-
-    if (user) {
-      done(null, user);
-    } else {
-      done(null, false);
-    }
-  } catch (error) {
-    done(error);
-  }
+passport.deserializeUser((obj, done) => {
+  done(null, obj);
 });
 
 // Middleware to check if a user is authenticated
@@ -325,7 +303,7 @@ app.get('/login', (req, res) => {
       <button type="submit">Login</button>
     </form>
     <br>
-    <a href="/signup">Sign Up</a> | <a href="/logout">Logout</a> | <a href="/protected">Protected Route</a> | <a href="/">Home</a>
+    <a href="/auth/google">Login with Google</a> | <a href="/signup">Sign Up</a> | <a href="/logout">Logout</a> | <a href="/protected">Protected Route</a> | <a href="/">Home</a>
   `);
 });
 
@@ -346,8 +324,23 @@ app.get('/protected', isLoggedIn, (req, res) => {
   res.send(`<h1>Protected Route - Welcome, ${req.user.username}!</h1>`);
 });
 
+// Google authentication route
+app.get('/auth/google',
+  passport.authenticate('google', { scope: ['https://www.googleapis.com/auth/plus.login'] })
+);
+
+// Google authentication callback route
+app.get('/auth/google/callback',
+  passport.authenticate('google', { failureRedirect: '/' }),
+  function(req, res) {
+    // Successful authentication, redirect home.
+    res.redirect('/');
+  }
+);
+
 // Updated app.listen to make the server accessible externally
 app.listen(port, '0.0.0.0', () => {
   console.log(`Server listening at http://0.0.0.0:${port}`);
 });
+
 
