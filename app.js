@@ -1,10 +1,54 @@
 const express = require('express');
 const axios = require('axios');
+const passport = require('passport');
+const LocalStrategy = require('passport-local').Strategy;
+const session = require('express-session');
+
 const app = express();
 const port = 3000;
 
-// Input validation
-const isValidUsername = (username) => /^[a-zA-Z\d](?:[a-zA-Z\d]|-(?=[a-zA-Z\d])){0,38}$/.test(username);
+// Set up session middleware
+app.use(session({ secret: 'your-secret-key', resave: false, saveUninitialized: false }));
+
+// Set up Passport.js
+app.use(passport.initialize());
+app.use(passport.session());
+
+// In-memory user database (replace with a database in a real application)
+const users = [
+  { id: 1, username: 'user1', password: 'password1' },
+  { id: 2, username: 'user2', password: 'password2' },
+];
+
+// Passport.js local strategy
+passport.use(new LocalStrategy(
+  (username, password, done) => {
+    const user = users.find(u => u.username === username && u.password === password);
+    if (user) {
+      return done(null, user);
+    } else {
+      return done(null, false, { message: 'Incorrect username or password.' });
+    }
+  }
+));
+
+// Serialize and deserialize user for session support
+passport.serializeUser((user, done) => {
+  done(null, user.id);
+});
+
+passport.deserializeUser((id, done) => {
+  const user = users.find(u => u.id === id);
+  done(null, user);
+});
+
+// Middleware to check if a user is authenticated
+function isLoggedIn(req, res, next) {
+  if (req.isAuthenticated()) {
+    return next();
+  }
+  res.redirect('/login');
+}
 
 // Helper functions
 const errorResponse = (res, status, message) => res.status(status).send(`<h2>Error: ${message}</h2>`);
@@ -50,6 +94,8 @@ app.get('/', (req, res) => {
       <input type="text" id="usernames" name="usernames" required>
       <button type="submit">Get Info</button>
     </form>
+    <br>
+    <a href="/login">Login</a> | <a href="/logout">Logout</a> | <a href="/protected">Protected Route</a>
   `);
 });
 
@@ -171,6 +217,37 @@ app.get('/github/repos/:owner/:repo/contributors', async (req, res) => {
     }
     errorResponse(res, 500, 'Internal Server Error');
   }
+});
+
+// Login route
+app.get('/login', (req, res) => {
+  res.send(`
+    <h1>Login</h1>
+    <form action="/login" method="post">
+      <label for="username">Username:</label>
+      <input type="text" id="username" name="username" required>
+      <label for="password">Password:</label>
+      <input type="password" id="password" name="password" required>
+      <button type="submit">Login</button>
+    </form>
+  `);
+});
+
+// Handle login form submission
+app.post('/login', passport.authenticate('local', {
+  successRedirect: '/',
+  failureRedirect: '/login',
+}));
+
+// Logout route
+app.get('/logout', (req, res) => {
+  req.logout();
+  res.redirect('/');
+});
+
+// Protected route
+app.get('/protected', isLoggedIn, (req, res) => {
+  res.send(`<h1>Protected Route - Welcome, ${req.user.username}!</h1>`);
 });
 
 // Updated app.listen to make the server accessible externally
