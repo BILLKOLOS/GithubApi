@@ -284,6 +284,7 @@ app.get('/signup', (req, res) => {
     <br>
     <a href="/login">Login</a> | <a href="/auth/google">Login with Google</a> | <a href="/logout">Logout</a> | <a href="/protected">Protected Route</a> | <a href="/">Home</a> | <a href="/dashboard">User Dashboard</a>
   `);
+  
 });
 
 // Handle signup form submission
@@ -329,6 +330,7 @@ app.get('/login', (req, res) => {
     <br>
     <a href="/auth/google">Login with Google</a> | <a href="/signup">Sign Up</a> | <a href="/logout">Logout</a> | <a href="/protected">Protected Route</a> | <a href="/">Home</a> | <a href="/dashboard">User Dashboard</a>
   `);
+  
 });
 
 // Handle login form submission
@@ -383,6 +385,23 @@ app.get('/dashboard', isLoggedIn, async (req, res) => {
   }
 });
 
+// Update the /profile route in app.js
+app.get('/profile', isLoggedIn, async (req, res) => {
+  const username = req.user.username;
+
+  try {
+    // Fetch more detailed GitHub information for the authenticated user
+    const userGitHubInfo = await fetchUserGitHubInfo(username);
+
+    // Render the user profile with fetched information using EJS view
+    res.render('profile', { username, userGitHubInfo });
+  } catch (error) {
+    console.error(error);
+    errorResponse(res, 500, 'Internal Server Error');
+  }
+});
+
+
 // Implement a function to fetch user-specific GitHub activity
 const fetchUserActivity = async (username) => {
   try {
@@ -410,6 +429,7 @@ const fetchUserActivity = async (username) => {
     throw error;
   }
 };
+
 
 // User dashboard route
 app.get('/dashboard', isLoggedIn, async (req, res) => {

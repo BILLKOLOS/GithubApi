@@ -1,0 +1,22 @@
+<!-- views/dashboard.ejs -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="/styles/dashboard.css">
+  <title>User Dashboard</title>
+</head>
+<body>
+  <!-- Include the navigation links -->
+  <% include('_header') %>
+
+  <h1><%= username %>'s Dashboard</h1>
+  <p>Recent GitHub Activity:</p>
+  <ul>
+    <% userActivity.forEach(activity => { %>
+      <li><%= activity.type %> - <%= activity.repo %> - <%= activity.title %></li>
+    <% }); %>
+  </ul>
+</body>
+</html>

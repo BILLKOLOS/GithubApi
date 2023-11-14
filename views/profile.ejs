@@ -1,0 +1,42 @@
+<!-- views/profile.ejs -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= username %>'s Profile</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+
+    h1 {
+      color: #333;
+    }
+
+    ul {
+      list-style: none;
+      padding: 0;
+    }
+
+    li {
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Include the navigation links -->
+  <% include('_header') %>
+
+  <h1><%= username %>'s Profile</h1>
+  <p>GitHub Information:</p>
+  <ul>
+    <li><strong>Name:</strong> <%= userGitHubInfo.name %></li>
+    <li><strong>Followers:</strong> <%= userGitHubInfo.followers %></li>
+    <li><strong>Following:</strong> <%= userGitHubInfo.following %></li>
+  </ul>
+</body>
+</html>
+
