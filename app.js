@@ -2,6 +2,7 @@ const express = require('express');
 const axios = require('axios');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const LocalStrategy = require('passport-local').Strategy;
 const session = require('express-session');
 const bodyParser = require('body-parser');
 const { Sequelize, DataTypes } = require('sequelize');
@@ -56,6 +57,29 @@ function(accessToken, refreshToken, profile, done) {
   // Save user information in your database or use it as needed
   return done(null, profile);
 }));
+
+// Configure Passport for Local Strategy
+passport.use(new LocalStrategy(
+  function(username, password, done) {
+    // Find user in the database and validate password
+    User.findOne({ where: { username } })
+      .then(user => {
+        if (!user) {
+          return done(null, false, { message: 'Incorrect username.' });
+        }
+        bcrypt.compare(password, user.password, (err, result) => {
+          if (err) {
+            return done(err);
+          }
+          if (!result) {
+            return done(null, false, { message: 'Incorrect password.' });
+          }
+          return done(null, user);
+        });
+      })
+      .catch(err => done(err));
+  }
+));
 
 // Serialize and deserialize user for session support
 passport.serializeUser((user, done) => {
@@ -122,7 +146,7 @@ app.get('/', (req, res) => {
       <button type="submit">Get Info</button>
     </form>
     <br>
-    <a href="/login">Login</a> | <a href="/logout">Logout</a> | <a href="/protected">Protected Route</a> | <a href="/signup">Sign Up</a>
+    <a href="/login">Login</a> | <a href="/auth/google">Login with Google</a> | <a href="/logout">Logout</a> | <a href="/protected">Protected Route</a> | <a href="/signup">Sign Up</a> | <a href="/dashboard">User Dashboard</a>
   `);
 });
 
@@ -248,7 +272,178 @@ app.get('/github/repos/:owner/:repo/contributors', async (req, res) => {
 
 // Signup route
 app.get('/signup', (req, res) => {
-  res.send(`
+  styledHtmlResponse(res, `
+    <h1>Sign Up</h1>
+    <form action="/signup" method="post">
+      <label for="username">Username:</label>
+      <input type="text" id="username" name="username" required>
+      <label for="password">Password:</label>
+      <input type="password" id="password" name="password" required>
+      <button type="submit">Sign Up</button>
+    </form>
+    <br>
+    <a href="/login">Login</a> | <a href="/auth/google">Login with Google</a> | <a href="/logout">Logout</a> | <a href="/protected">Protected Route</a> | <a href="/">Home</a> | <a href="/dashboard">User Dashboard</a>
+  `);
+});
+
+// Handle signup form submission
+app.post('/signup', async (req, res) => {
+  const { username, password } = req.body;
+
+  try {
+    // Check if the username is already taken
+    const existingUser = await User.findOne({ where: { username } });
+
+    if (existingUser) {
+      return styledHtmlResponse(res, '<h2>Error: Username already taken. Please choose another.</h2>');
+    }
+
+    // Hash the password before saving to the database
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create a new user
+    const newUser = await User.create({
+      username,
+      password: hashedPassword,
+    });
+
+    // Redirect to the login page after successful signup
+    res.redirect('/login');
+  } catch (error) {
+    console.error(error);
+    errorResponse(res, 500, 'Internal Server Error');
+  }
+});
+
+// Login route
+app.get('/login', (req, res) => {
+  styledHtmlResponse(res, `
+    <h1>Login</h1>
+    <form action="/login" method="post">
+      <label for="username">Username:</label>
+      <input type="text" id="username" name="username" required>
+      <label for="password">Password:</label>
+      <input type="password" id="password" name="password" required>
+      <button type="submit">Login</button>
+    </form>
+    <br>
+    <a href="/auth/google">Login with Google</a> | <a href="/signup">Sign Up</a> | <a href="/logout">Logout</a> | <a href="/protected">Protected Route</a> | <a href="/">Home</a> | <a href="/dashboard">User Dashboard</a>
+  `);
+});
+
+// Handle login form submission
+app.post('/login', passport.authenticate('local', {
+  successRedirect: '/',
+  failureRedirect: '/login',
+}));
+
+// Logout route
+app.get('/logout', (req, res) => {
+  req.logout((err) => {
+    if (err) {
+      console.error(err);
+      return styledHtmlResponse(res, '<h2>Error logging out.</h2>');
+    }
+    res.redirect('/');
+  });
+});
+
+// Protected route
+app.get('/protected', isLoggedIn, (req, res) => {
+  styledHtmlResponse(res, `<h1>Protected Route - Welcome, ${req.user.username}!</h1>`);
+});
+
+// User dashboard route
+app.get('/dashboard', isLoggedIn, async (req, res) => {
+  // Fetch and display information about recent GitHub activity for the authenticated user
+  const username = req.user.username;
+
+  try {
+    // Use the GitHub API to fetch user-specific information (e.g., recent commits, issues, pull requests)
+    const userActivity = await fetchUserActivity(username);
+
+    // Render the user dashboard with fetched information
+    const htmlResponse = `
+      <h1>${username}'s Dashboard</h1>
+      <h2>Recent GitHub Activity</h2>
+      <ul>
+        ${userActivity.map(activity => `
+          <li>
+            <strong>${activity.repo}</strong>
+            <p>${activity.type}: ${activity.title}</p>
+          </li>
+        `).join('')}
+      </ul>
+    `;
+
+    styledHtmlResponse(res, htmlResponse);
+  } catch (error) {
+    console.error(error);
+    errorResponse(res, 500, 'Internal Server Error');
+  }
+});
+
+// Implement a function to fetch user-specific GitHub activity
+const fetchUserActivity = async (username) => {
+  try {
+    // Use the GitHub API or any third-party npm package to fetch user activity
+    // Example: Fetch recent commits, issues, pull requests, etc.
+    const response = await axios.get(`https://api.github.com/users/${username}/events`);
+
+    // Process the response and extract relevant information
+    const userActivity = response.data.map(event => ({
+      type: event.type,
+      repo: event.repo.name,
+      title: event.payload.title || event.payload.commits[0].message,
+    }));
+
+    // Return the processed user activity
+    return userActivity;
+  } catch (error) {
+    console.error('Error fetching user activity:', error);
+
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', error.response.data);
+    }
+
+    throw error;
+  }
+};
+
+// User dashboard route
+app.get('/dashboard', isLoggedIn, async (req, res) => {
+  // Fetch and display information about recent GitHub activity for the authenticated user
+  const username = req.user.username;
+
+  try {
+    // Use the GitHub API to fetch user-specific information (e.g., recent commits, issues, pull requests)
+    const userActivity = await fetchUserActivity(username);
+
+    // Render the user dashboard with fetched information
+    const htmlResponse = `
+      <h1>${username}'s Dashboard</h1>
+      <h2>Recent GitHub Activity</h2>
+      <ul>
+        ${userActivity.map(activity => `
+          <li>
+            <strong>${activity.repo}</strong>
+            <p>${activity.type}: ${activity.title}</p>
+          </li>
+        `).join('')}
+      </ul>
+    `;
+
+    styledHtmlResponse(res, htmlResponse);
+  } catch (error) {
+    console.error(error);
+    errorResponse(res, 500, 'Internal Server Error');
+  }
+});
+
+// Signup route
+app.get('/signup', (req, res) => {
+  styledHtmlResponse(res, `
     <h1>Sign Up</h1>
     <form action="/signup" method="post">
       <label for="username">Username:</label>
@@ -283,7 +478,7 @@ app.post('/signup', async (req, res) => {
       password: hashedPassword,
     });
 
-    // Redirect to the login page after successful signup
+    // Redirect to the login page after a successful signup
     res.redirect('/login');
   } catch (error) {
     console.error(error);
@@ -293,7 +488,7 @@ app.post('/signup', async (req, res) => {
 
 // Login route
 app.get('/login', (req, res) => {
-  res.send(`
+  styledHtmlResponse(res, `
     <h1>Login</h1>
     <form action="/login" method="post">
       <label for="username">Username:</label>
@@ -303,7 +498,7 @@ app.get('/login', (req, res) => {
       <button type="submit">Login</button>
     </form>
     <br>
-    <a href="/auth/google">Login with Google</a> | <a href="/signup">Sign Up</a> | <a href="/logout">Logout</a> | <a href="/protected">Protected Route</a> | <a href="/">Home</a>
+    <a href="/auth/google">Login with Google</a> | <a href="/signup">Sign Up</a> | <a href="/logout">Logout</a> | <a href="/protected">Protected Route</a> | <a href="/">Home</a> | <a href="/dashboard">User Dashboard</a>
   `);
 });
 
@@ -315,13 +510,18 @@ app.post('/login', passport.authenticate('local', {
 
 // Logout route
 app.get('/logout', (req, res) => {
-  req.logout();
-  res.redirect('/');
+  req.logout((err) => {
+    if (err) {
+      console.error(err);
+      return res.redirect('/');
+    }
+    res.redirect('/');
+  });
 });
 
 // Protected route
 app.get('/protected', isLoggedIn, (req, res) => {
-  res.send(`<h1>Protected Route - Welcome, ${req.user.username}!</h1>`);
+  styledHtmlResponse(res, `<h1>Protected Route - Welcome, ${req.user.username}!</h1>`);
 });
 
 // Google authentication route
@@ -342,5 +542,4 @@ app.get('/auth/google/callback',
 app.listen(port, '0.0.0.0', () => {
   console.log(`Server listening at http://0.0.0.0:${port}`);
 });
-
 
