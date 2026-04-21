@@ -1,30 +1,31 @@
 {
-  "name": "my-github-app",
-  "version": "1.0.0",
-  "description": "mine",
+  "name": "github-contact-explorer",
+  "version": "2.0.0",
+  "description": "Find GitHub developers and extract contact information",
   "main": "app.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node app.js",
+    "dev": "nodemon app.js"
   },
-  "keywords": [
-    "fetch",
-    "github",
-    "api"
-  ],
+  "keywords": ["github", "api", "contacts", "developer-search"],
   "author": "bill ooko",
   "license": "ISC",
   "dependencies": {
     "axios": "^1.6.1",
     "bcrypt": "^5.1.1",
+    "dotenv": "^16.3.1",
+    "ejs": "^3.1.9",
     "express": "^4.18.2",
     "express-session": "^1.17.3",
+    "mongoose": "^8.0.3",
     "passport": "^0.6.0",
     "passport-google-oauth20": "^2.0.0",
-    "passport-local": "^1.0.0",
-    "passport-local-mongoose": "^8.0.0",
-    "pg": "^8.11.3",
-    "sequelize": "^6.35.0",
-    "sequelize-cli": "^6.6.2",
-    "socket.io": "^4.7.2"
+    "passport-local": "^1.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Results · GitHub Contact Explorer</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f6f8fa;
+      --surface: #ffffff;
+      --border: #d0d7de;
+      --blue: #0969da;
+      --blue-hover: #0550ae;
+      --blue-bg: #ddf4ff;
+      --text: #24292f;
+      --muted: #57606a;
+      --green: #1a7f37;
+      --green-bg: #dafbe1;
+      --red: #cf222e;
+      --orange: #bc4c00;
+      --orange-bg: #fff1e5;
+      --shadow: 0 1px 3px rgba(36,41,47,.08), 0 4px 16px rgba(36,41,47,.04);
+    }
+
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); }
+
+    /* ── Nav ── */
+    nav {
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 0 24px; display: flex; align-items: center;
+      justify-content: space-between; height: 56px; position: sticky; top: 0; z-index: 100;
+    }
+    .nav-brand { font-weight: 700; font-size: 15px; color: var(--text); text-decoration: none; display: flex; align-items: center; gap: 8px; }
+    .nav-links { display: flex; gap: 8px; align-items: center; }
+    .nav-links a { font-size: 13px; color: var(--muted); text-decoration: none; padding: 5px 10px; border-radius: 6px; transition: background .15s; }
+    .nav-links a:hover { background: var(--bg); color: var(--text); }
+    .btn-sm { background: var(--surface); border: 1px solid var(--border); color: var(--text); font-size: 13px; padding: 5px 12px; border-radius: 6px; text-decoration: none; transition: background .15s; }
+    .btn-sm:hover { background: var(--bg); }
+
+    /* ── Filter bar ── */
+    .filter-bar {
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 12px 24px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    }
+    .filter-bar form { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex: 1; }
+    .filter-bar input, .filter-bar select {
+      padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px;
+      font-size: 13px; color: var(--text); background: var(--surface); outline: none;
+      transition: border-color .15s;
+    }
+    .filter-bar input { width: 180px; }
+    .filter-bar input:focus, .filter-bar select:focus { border-color: var(--blue); }
+    .filter-bar .checkbox-label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+    .filter-bar .checkbox-label input { width: 14px; height: 14px; accent-color: var(--green); margin: 0; }
+    .btn-apply { background: var(--blue); color: #fff; border: none; padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background .15s; }
+    .btn-apply:hover { background: var(--blue-hover); }
+
+    /* ── Layout ── */
+    .page { max-width: 1100px; margin: 0 auto; padding: 24px; }
+
+    /* ── Summary bar ── */
+    .summary {
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 12px; margin-bottom: 20px;
+    }
+    .summary-left { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .summary h2 { font-size: 15px; font-weight: 600; color: var(--text); }
+    .pill {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600;
+    }
+    .pill-blue { background: var(--blue-bg); color: var(--blue); }
+    .pill-green { background: var(--green-bg); color: var(--green); }
+    .pill-orange { background: var(--orange-bg); color: var(--orange); }
+    .pill-gray { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+
+    .stat-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    .no-results {
+      text-align: center; padding: 60px 24px; color: var(--muted);
+    }
+    .no-results .icon { font-size: 48px; margin-bottom: 16px; }
+    .no-results h3 { font-size: 18px; margin-bottom: 8px; color: var(--text); }
+
+    /* ── User grid ── */
+    .user-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+
+    /* ── User Card ── */
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; overflow: hidden; transition: box-shadow .15s, border-color .15s;
+      display: flex; flex-direction: column;
+    }
+    .card:hover { box-shadow: var(--shadow); border-color: #b0bec5; }
+    .card.has-contacts { border-left: 3px solid var(--blue); }
+
+    .card-header {
+      padding: 16px; display: flex; gap: 12px; align-items: flex-start;
+      border-bottom: 1px solid var(--bg);
+    }
+    .avatar { width: 48px; height: 48px; border-radius: 50%; border: 2px solid var(--border); flex-shrink: 0; }
+    .user-meta { flex: 1; min-width: 0; }
+    .user-name { font-size: 15px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .user-name a { color: inherit; text-decoration: none; }
+    .user-name a:hover { color: var(--blue); }
+    .user-login { font-size: 12px; color: var(--muted); margin-top: 1px; }
+    .user-login a { color: var(--muted); text-decoration: none; }
+    .user-login a:hover { color: var(--blue); }
+    .activity-badge {
+      flex-shrink: 0; font-size: 11px; font-weight: 700; padding: 3px 8px;
+      border-radius: 20px; white-space: nowrap;
+    }
+    .badge-active { background: var(--green-bg); color: var(--green); }
+    .badge-ghost { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+
+    .user-detail { padding: 0 16px 12px; }
+    .meta-line { font-size: 12px; color: var(--muted); margin-top: 6px; display: flex; align-items: center; gap: 5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .bio-text { font-size: 13px; color: var(--muted); margin-top: 8px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+    /* ── Contact Section ── */
+    .contacts { padding: 12px 16px; border-top: 1px solid var(--bg); flex: 1; }
+    .contacts-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 8px; }
+
+    .contact-row { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+    .contact-icon { font-size: 14px; flex-shrink: 0; width: 18px; text-align: center; }
+    .contact-value { font-size: 13px; color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .contact-value a { color: var(--text); text-decoration: none; }
+    .contact-value a:hover { color: var(--blue); text-decoration: underline; }
+    .contact-actions { display: flex; gap: 4px; flex-shrink: 0; }
+    .btn-copy, .btn-open {
+      background: none; border: 1px solid var(--border); border-radius: 5px;
+      font-size: 11px; padding: 2px 7px; cursor: pointer; color: var(--muted);
+      transition: background .12s, color .12s; white-space: nowrap;
+    }
+    .btn-copy:hover { background: var(--bg); color: var(--text); }
+    .btn-open { text-decoration: none; display: inline-flex; align-items: center; }
+    .btn-open:hover { background: var(--bg); color: var(--text); }
+
+    .no-contacts {
+      font-size: 12px; color: #aaa; font-style: italic; padding: 4px 0;
+    }
+
+    .others-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+    .others-chip {
+      font-size: 11px; padding: 2px 9px; border: 1px solid var(--border);
+      border-radius: 20px; color: var(--muted); text-decoration: none; background: var(--bg);
+      transition: background .12s, color .12s;
+    }
+    .others-chip:hover { background: var(--blue-bg); color: var(--blue); border-color: var(--blue); }
+
+    /* ── Card Footer ── */
+    .card-footer {
+      padding: 10px 16px; border-top: 1px solid var(--bg);
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--bg);
+    }
+    .footer-stats { display: flex; gap: 12px; }
+    .stat-item { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 3px; }
+    .last-active { font-size: 11px; color: var(--muted); }
+
+    /* ── Copy toast ── */
+    #copy-toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+      background: #24292f; color: #fff; padding: 8px 18px; border-radius: 20px;
+      font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 999;
+    }
+    #copy-toast.show { opacity: 1; }
+
+    @media (max-width: 640px) {
+      .filter-bar { padding: 10px 16px; }
+      .filter-bar input { width: 140px; }
+      .page { padding: 16px; }
+      .user-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a class="nav-brand" href="/">🔍 GitHub Contact Explorer</a>
+  <div class="nav-links">
+    <a href="/" class="btn-sm">← New Search</a>
+    <% if (user) { %>
+      <a href="/logout">Logout</a>
+    <% } else { %>
+      <a href="/login">Login</a>
+    <% } %>
+  </div>
+</nav>
+
+<!-- Re-filter bar -->
+<div class="filter-bar">
+  <form action="/search" method="GET">
+    <input type="text" name="q" placeholder="Keywords…" value="<%= query.q || '' %>">
+    <input type="text" name="location" placeholder="Location…" value="<%= query.location || '' %>">
+    <select name="stack">
+      <% Object.entries(stacks).forEach(([key, s]) => { %>
+        <option value="<%= key %>" <%=query.stack===key?'selected':''%>><%= s.label %></option>
+      <% }) %>
+    </select>
+    <select name="batch">
+      <% [50,100,200].forEach(n => { %>
+        <option value="<%= n %>" <%=parseInt(query.batch)===n?'selected':''%>><%= n %> users</option>
+      <% }) %>
+    </select>
+    <label class="checkbox-label">
+      <input type="checkbox" name="active" value="true" <%=query.active==='true'?'checked':''%>>
+      Active only
+    </label>
+    <button type="submit" class="btn-apply">Update</button>
+  </form>
+</div>
+
+<div class="page">
+
+  <!-- Summary row -->
+  <div class="summary">
+    <div class="summary-left">
+      <h2><%= users.length %> developers</h2>
+      <div class="stat-chips">
+        <% if (query.location) { %><span class="pill pill-blue">📍 <%=query.location%></span><% } %>
+        <% if (query.stack && query.stack !== 'all') { %><span class="pill pill-blue">⚙️ <%=stackLabel%></span><% } %>
+        <% if (query.active === 'true') { %><span class="pill pill-green">✅ Active</span><% } %>
+        <span class="pill pill-gray"><%= totalCount.toLocaleString() %> total on GitHub</span>
+      </div>
+    </div>
+    <div class="stat-chips">
+      <span class="pill pill-green">📧 <%= stats.withEmail %> emails</span>
+      <span class="pill pill-blue">📱 <%= stats.withWhatsApp %> WhatsApp</span>
+      <span class="pill pill-orange">💼 <%= stats.withLinkedIn %> LinkedIn</span>
+    </div>
+  </div>
+
+  <% if (users.length === 0) { %>
+    <div class="no-results">
+      <div class="icon">🔭</div>
+      <h3>No developers found</h3>
+      <p>Try different keywords, a broader location, or a different stack filter.</p>
+    </div>
+  <% } else { %>
+
+  <div class="user-grid">
+    <% users.forEach(u => { %>
+    <div class="card <%= u.hasContacts ? 'has-contacts' : '' %>">
+
+      <!-- Header: avatar + name + active badge -->
+      <div class="card-header">
+        <img class="avatar" src="<%= u.avatar %>" alt="<%= u.login %>" loading="lazy">
+        <div class="user-meta">
+          <div class="user-name">
+            <a href="<%= u.url %>" target="_blank" rel="noopener"><%= u.name %></a>
+          </div>
+          <div class="user-login"><a href="<%= u.url %>" target="_blank" rel="noopener">@<%= u.login %></a></div>
+        </div>
+        <span class="activity-badge <%= u.active ? 'badge-active' : 'badge-ghost' %>">
+          <%= u.active ? '● Active' : '○ Quiet' %>
+        </span>
+      </div>
+
+      <!-- Location + Company + Bio -->
+      <div class="user-detail">
+        <% if (u.location) { %>
+          <div class="meta-line">📍 <%= u.location %></div>
+        <% } %>
+        <% if (u.company) { %>
+          <div class="meta-line">🏢 <%= u.company.replace(/^@/, '') %></div>
+        <% } %>
+        <% if (u.bio) { %>
+          <div class="bio-text"><%= u.bio %></div>
+        <% } %>
+      </div>
+
+      <!-- Contacts -->
+      <div class="contacts">
+        <div class="contacts-label">Contact Info</div>
+
+        <% if (u.contacts.email) { %>
+        <div class="contact-row">
+          <span class="contact-icon">📧</span>
+          <span class="contact-value"><%= u.contacts.email %></span>
+          <div class="contact-actions">
+            <button class="btn-copy" onclick="copyText('<%= u.contacts.email %>')">Copy</button>
+            <a class="btn-open" href="mailto:<%= u.contacts.email %>">Mail ↗</a>
+          </div>
+        </div>
+        <% } %>
+
+        <% if (u.contacts.whatsapp) { %>
+        <div class="contact-row">
+          <span class="contact-icon">📱</span>
+          <span class="contact-value">
+            <a href="<%= u.contacts.whatsapp.url %>" target="_blank" rel="noopener">
+              <%= u.contacts.whatsapp.number %>
+            </a>
+          </span>
+          <div class="contact-actions">
+            <button class="btn-copy" onclick="copyText('<%= u.contacts.whatsapp.number %>')">Copy</button>
+            <a class="btn-open" href="<%= u.contacts.whatsapp.url %>" target="_blank" rel="noopener">Chat ↗</a>
+          </div>
+        </div>
+        <% } %>
+
+        <% if (u.contacts.linkedin) { %>
+        <div class="contact-row">
+          <span class="contact-icon">💼</span>
+          <span class="contact-value">
+            <a href="<%= u.contacts.linkedin %>" target="_blank" rel="noopener">
+              <%= u.contacts.linkedin.replace('https://', '') %>
+            </a>
+          </span>
+          <div class="contact-actions">
+            <a class="btn-open" href="<%= u.contacts.linkedin %>" target="_blank" rel="noopener">Open ↗</a>
+          </div>
+        </div>
+        <% } %>
+
+        <% if (u.contacts.twitter) { %>
+        <div class="contact-row">
+          <span class="contact-icon">🐦</span>
+          <span class="contact-value">
+            <a href="<%= u.contacts.twitter %>" target="_blank" rel="noopener">
+              @<%= u.contacts.twitter.replace(/.*\//, '') %>
+            </a>
+          </span>
+          <div class="contact-actions">
+            <a class="btn-open" href="<%= u.contacts.twitter %>" target="_blank" rel="noopener">Open ↗</a>
+          </div>
+        </div>
+        <% } %>
+
+        <% if (u.contacts.others && u.contacts.others.length > 0) { %>
+        <div class="contact-row" style="align-items:flex-start;margin-top:4px;">
+          <span class="contact-icon" style="margin-top:2px;">🔗</span>
+          <div class="others-row">
+            <% u.contacts.others.forEach(o => { %>
+              <a class="others-chip" href="<%= o.url %>" target="_blank" rel="noopener"><%= o.label %> ↗</a>
+            <% }) %>
+          </div>
+        </div>
+        <% } %>
+
+        <% if (!u.contacts.email && !u.contacts.whatsapp && !u.contacts.linkedin && !u.contacts.twitter && (!u.contacts.others || u.contacts.others.length === 0)) { %>
+          <div class="no-contacts">No public contact info found in profile</div>
+        <% } %>
+      </div>
+
+      <!-- Footer: stats -->
+      <div class="card-footer">
+        <div class="footer-stats">
+          <span class="stat-item">📦 <%= u.publicRepos %></span>
+          <span class="stat-item">👥 <%= u.followers %></span>
+        </div>
+        <span class="last-active">⏱ <%= u.lastSeen %></span>
+      </div>
+    </div>
+    <% }) %>
+  </div>
+
+  <% } %>
+</div>
+
+<!-- Copy toast -->
+<div id="copy-toast">Copied to clipboard ✓</div>
+
+<script>
+  function copyText(text) {
+    navigator.clipboard.writeText(text).then(() => {
+      const t = document.getElementById('copy-toast');
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 2000);
+    }).catch(() => {
+      // Fallback
+      const el = document.createElement('textarea');
+      el.value = text;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+      const t = document.getElementById('copy-toast');
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 2000);
+    });
+  }
+</script>
+
+</body>
+</html>

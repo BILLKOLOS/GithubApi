@@ -1,565 +1,477 @@
+require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const LocalStrategy = require('passport-local').Strategy;
 const session = require('express-session');
-const bodyParser = require('body-parser');
-const { Sequelize, DataTypes } = require('sequelize');
+const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
+const path = require('path');
 
 const app = express();
-const port = 3000;
+const PORT = process.env.PORT || 3000;
 
-// Set up session middleware
-app.use(session({ secret: 'your-secret-key', resave: false, saveUninitialized: false }));
+// ─── MongoDB Connection ────────────────────────────────────────────────────────
+mongoose.connect(process.env.DATABASE_URL)
+  .then(() => console.log('✅ MongoDB connected'))
+  .catch(err => console.error('❌ MongoDB error:', err.message));
 
-// Set up Passport.js
+// ─── Schemas ──────────────────────────────────────────────────────────────────
+const appUserSchema = new mongoose.Schema({
+  username: { type: String, unique: true, required: true },
+  password: { type: String, required: true },
+  googleId: String,
+  displayName: String,
+  createdAt: { type: Date, default: Date.now }
+});
+const AppUser = mongoose.model('AppUser', appUserSchema);
+
+// Cache GitHub profiles for 24 hours to avoid rate limits
+const githubCacheSchema = new mongoose.Schema({
+  username: { type: String, unique: true, required: true },
+  data: Object,
+  cachedAt: { type: Date, default: Date.now, expires: 86400 }
+});
+const GithubCache = mongoose.model('GithubCache', githubCacheSchema);
+
+// ─── App Setup ─────────────────────────────────────────────────────────────────
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
+app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'github-explorer-dev-secret',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 }
+}));
 app.use(passport.initialize());
 app.use(passport.session());
-app.use(bodyParser.urlencoded({ extended: true }));
 
-// Set up Sequelize for PostgreSQL
-const sequelize = new Sequelize('github_api', 'postgres', 'Bill2020$2019', {
-  host: 'localhost',
-  dialect: 'postgres',
-});
-
-// Define the User model
-const User = sequelize.define('User', {
-  username: {
-    type: DataTypes.STRING,
-    allowNull: false,
-    unique: true,
-  },
-  password: {
-    type: DataTypes.STRING,
-    allowNull: false,
-  },
-});
-
-// Sync the model with the database
-sequelize.sync()
-  .then(() => {
-    console.log('Database synced');
-  })
-  .catch((err) => {
-    console.error('Error syncing database:', err);
-  });
-
-// Configure Passport for Google Strategy
-passport.use(new GoogleStrategy({
-  clientID: '809824786204-79v8v18h15c3pdg53fmthn03abgatard.apps.googleusercontent.com',
-  clientSecret: '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',
-  callbackURL: 'http://localhost:3000/auth/google/callback'
-},
-function(accessToken, refreshToken, profile, done) {
-  // Save user information in your database or use it as needed
-  return done(null, profile);
+// ─── Passport ─────────────────────────────────────────────────────────────────
+passport.use(new LocalStrategy(async (username, password, done) => {
+  try {
+    const user = await AppUser.findOne({ username: username.toLowerCase() });
+    if (!user) return done(null, false, { message: 'User not found.' });
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) return done(null, false, { message: 'Incorrect password.' });
+    return done(null, user);
+  } catch (err) { return done(err); }
 }));
 
-// Configure Passport for Local Strategy
-passport.use(new LocalStrategy(
-  function(username, password, done) {
-    // Find user in the database and validate password
-    User.findOne({ where: { username } })
-      .then(user => {
-        if (!user) {
-          return done(null, false, { message: 'Incorrect username.' });
-        }
-        bcrypt.compare(password, user.password, (err, result) => {
-          if (err) {
-            return done(err);
-          }
-          if (!result) {
-            return done(null, false, { message: 'Incorrect password.' });
-          }
-          return done(null, user);
-        });
-      })
-      .catch(err => done(err));
-  }
-));
+passport.use(new GoogleStrategy({
+  clientID: process.env.GOOGLE_CLIENT_ID,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  callbackURL: process.env.GOOGLE_CALLBACK_URL
+}, async (accessToken, refreshToken, profile, done) => {
+  try {
+    let user = await AppUser.findOne({ googleId: profile.id });
+    if (!user) {
+      const email = profile.emails?.[0]?.value || `google_${profile.id}`;
+      user = await AppUser.create({
+        username: email.toLowerCase(),
+        googleId: profile.id,
+        displayName: profile.displayName,
+        password: await bcrypt.hash(Math.random().toString(36) + Date.now(), 10)
+      });
+    }
+    return done(null, user);
+  } catch (err) { return done(err); }
+}));
 
-// Serialize and deserialize user for session support
-passport.serializeUser((user, done) => {
-  done(null, user);
+passport.serializeUser((user, done) => done(null, user._id.toString()));
+passport.deserializeUser(async (id, done) => {
+  try {
+    const user = await AppUser.findById(id);
+    done(null, user);
+  } catch (err) { done(err); }
 });
 
-passport.deserializeUser((obj, done) => {
-  done(null, obj);
-});
-
-// Middleware to check if a user is authenticated
 function isLoggedIn(req, res, next) {
-  if (req.isAuthenticated()) {
-    return next();
-  }
+  if (req.isAuthenticated()) return next();
   res.redirect('/login');
 }
 
-// Input validation
-const isValidUsername = (username) => /^[a-zA-Z\d](?:[a-zA-Z\d]|-(?=[a-zA-Z\d])){0,38}$/.test(username);
-
-// Helper functions
-const errorResponse = (res, status, message) => res.status(status).send(`<h2>Error: ${message}</h2>`);
-const styledHtmlResponse = (res, content) => res.send(`
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-      body {
-        font-family: 'Arial', sans-serif;
-        text-align: center;
-        margin: 20px;
-      }
-      h1, h2 {
-        color: #0366d6;
-      }
-      ul {
-        list-style-type: none;
-        padding: 0;
-      }
-      li {
-        border: 1px solid #ddd;
-        margin: 5px;
-        padding: 10px;
-        border-radius: 5px;
-      }
-    </style>
-  </head>
-  <body>
-    ${content}
-  </body>
-  </html>
-`);
-
-// Welcome message with HTML and a form
-app.get('/', (req, res) => {
-  styledHtmlResponse(res, `
-    <h1>Welcome to the GitHub User Info App!</h1>
-    <form action="/github/users" method="GET">
-      <label for="usernames">Enter GitHub usernames (comma-separated):</label>
-      <input type="text" id="usernames" name="usernames" required>
-      <button type="submit">Get Info</button>
-    </form>
-    <br>
-    <a href="/login">Login</a> | <a href="/auth/google">Login with Google</a> | <a href="/logout">Logout</a> | <a href="/protected">Protected Route</a> | <a href="/signup">Sign Up</a> | <a href="/dashboard">User Dashboard</a>
-  `);
+// ─── GitHub API Client ─────────────────────────────────────────────────────────
+const githubAxios = axios.create({
+  baseURL: 'https://api.github.com',
+  headers: {
+    Accept: 'application/vnd.github.v3+json',
+    'User-Agent': 'GitHub-Contact-Explorer/2.0',
+    ...(process.env.GITHUB_TOKEN && {
+      Authorization: `Bearer ${process.env.GITHUB_TOKEN}`
+    })
+  },
+  timeout: 15000
 });
 
-// Render user information in an HTML template with input validation
-app.get('/github/users', async (req, res) => {
-  const inputUsernames = req.query.usernames;
-
-  // Validate input usernames
-  if (!inputUsernames || !inputUsernames.trim()) {
-    return errorResponse(res, 400, 'Please enter GitHub usernames.');
-  }
-
-  const usernames = inputUsernames.split(',').map(username => username.trim());
-
-  if (usernames.some(username => !isValidUsername(username))) {
-    return errorResponse(res, 400, 'Invalid GitHub username(s).');
-  }
-
-  try {
-    const usersData = await Promise.all(
-      usernames.map(async (username) => {
-        const response = await axios.get(`https://api.github.com/users/${username}`);
-        return {
-          name: response.data.name,
-          followers: response.data.followers,
-          following: response.data.following,
-        };
-      })
-    );
-
-    // Render user information in an HTML template
-    const htmlResponse = `
-      <h1>GitHub User Information</h1>
-      <ul>
-        ${usersData.map(user => `
-          <li>
-            <strong>${user.name}</strong>
-            <p>Followers: ${user.followers}</p>
-            <p>Following: ${user.following}</p>
-          </li>
-        `).join('')}
-      </ul>
-    `;
-
-    styledHtmlResponse(res, htmlResponse);
-  } catch (error) {
-    console.error(error);
-    errorResponse(res, 500, 'Internal Server Error');
-  }
-});
-
-// New route to retrieve a list of user's repositories
-app.get('/github/repos/:username', async (req, res) => {
-  const username = req.params.username;
-
-  try {
-    const response = await axios.get(`https://api.github.com/users/${username}/repos`);
-    const repositories = response.data.map(repo => ({
-      name: repo.name,
-      description: repo.description,
-      stargazersCount: repo.stargazers_count,
-      forksCount: repo.forks_count,
-    }));
-
-    const htmlResponse = `
-      <h1>GitHub Repositories for ${username}</h1>
-      <ul>
-        ${repositories.map(repo => `
-          <li>
-            <strong>${repo.name}</strong>
-            <p>Description: ${repo.description || 'No description available.'}</p>
-            <p>Stars: ${repo.stargazersCount}</p>
-            <p>Forks: ${repo.forksCount}</p>
-          </li>
-        `).join('')}
-      </ul>
-    `;
-
-    styledHtmlResponse(res, htmlResponse);
-  } catch (error) {
-    console.error(error);
-    if (error.response && error.response.status === 404) {
-      // Handle case where the user does not exist
-      return errorResponse(res, 404, 'User not found');
+// Concurrency-limited batch fetcher
+async function fetchWithConcurrency(items, fn, limit = 8) {
+  const results = [];
+  for (let i = 0; i < items.length; i += limit) {
+    const batch = items.slice(i, i + limit);
+    const settled = await Promise.allSettled(batch.map(fn));
+    for (const r of settled) {
+      if (r.status === 'fulfilled' && r.value) results.push(r.value);
     }
-    errorResponse(res, 500, 'Internal Server Error');
+    // Small delay between batches to be kind to the API
+    if (i + limit < items.length) await new Promise(r => setTimeout(r, 120));
   }
-});
+  return results;
+}
 
-// New route to retrieve contributors for a GitHub repository
-app.get('/github/repos/:owner/:repo/contributors', async (req, res) => {
-  const { owner, repo } = req.params;
+// ─── Contact Extraction ────────────────────────────────────────────────────────
+function extractContacts(user) {
+  const bioRaw = user.bio || '';
+  const blog = user.blog || '';
+  const company = user.company || '';
+  const combined = `${bioRaw} ${blog} ${company}`;
 
-  try {
-    const response = await axios.get(`https://api.github.com/repos/${owner}/${repo}/contributors`);
-    const contributors = response.data.map(contributor => ({
-      username: contributor.login,
-      contributions: contributor.contributions,
-    }));
+  const email = user.email || extractEmail(combined);
+  const whatsapp = extractWhatsApp(combined);
+  const linkedin = extractLinkedIn(combined) || (blog.toLowerCase().includes('linkedin.com') ? normalizeUrl(blog) : null);
+  const twitter = user.twitter_username
+    ? `https://twitter.com/${user.twitter_username}`
+    : extractTwitterFromText(combined);
+  const others = extractOthers(blog, bioRaw, linkedin, twitter);
 
-    const htmlResponse = `
-      <h1>GitHub Repository Contributors</h1>
-      <ul>
-        ${contributors.map(contributor => `
-          <li>
-            <strong>${contributor.username}</strong>
-            <p>Contributions: ${contributor.contributions}</p>
-          </li>
-        `).join('')}
-      </ul>
-    `;
+  return { email, whatsapp, linkedin, twitter, others };
+}
 
-    styledHtmlResponse(res, htmlResponse);
-  } catch (error) {
-    console.error(error);
-    if (error.response && error.response.status === 404) {
-      // Handle case where the repository does not exist
-      return errorResponse(res, 404, 'Repository not found');
+function extractEmail(text) {
+  const m = text.match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/);
+  return m ? m[0].toLowerCase() : null;
+}
+
+function extractWhatsApp(text) {
+  // Priority 1: explicit wa.me link
+  const waMe = text.match(/(?:https?:\/\/)?wa\.me\/(\+?[\d]{7,15})/i);
+  if (waMe) {
+    const num = waMe[1].replace(/\+/, '');
+    return { number: waMe[1], url: `https://wa.me/${num}`, source: 'wa.me' };
+  }
+
+  // Priority 2: "WhatsApp" / "WA:" label next to a number
+  const waLabel = text.match(/(?:whatsapp|wa)[:\s#*]+(\+?[\d\s()\-]{9,16})/i);
+  if (waLabel) {
+    const raw = waLabel[1].replace(/[\s()\-]/g, '');
+    if (raw.length >= 9) {
+      const num = raw.replace(/^\+/, '');
+      return { number: raw, url: `https://wa.me/${num}`, source: 'label' };
     }
-    errorResponse(res, 500, 'Internal Server Error');
   }
-});
 
-// Signup route
-app.get('/signup', (req, res) => {
-  styledHtmlResponse(res, `
-    <h1>Sign Up</h1>
-    <form action="/signup" method="post">
-      <label for="username">Username:</label>
-      <input type="text" id="username" name="username" required>
-      <label for="password">Password:</label>
-      <input type="password" id="password" name="password" required>
-      <button type="submit">Sign Up</button>
-    </form>
-    <br>
-    <a href="/login">Login</a> | <a href="/auth/google">Login with Google</a> | <a href="/logout">Logout</a> | <a href="/protected">Protected Route</a> | <a href="/">Home</a> | <a href="/dashboard">User Dashboard</a>
-  `);
-  
-});
+  // Priority 3: International African/global phone format (+254, +255, +256, +27, +234 etc.)
+  const intl = text.match(/(\+(?:254|255|256|260|263|27|234|233|221|44|91|1)\d{8,12})/);
+  if (intl) {
+    const num = intl[1].replace(/^\+/, '');
+    return { number: intl[1], url: `https://wa.me/${num}`, source: 'intl' };
+  }
 
-// Handle signup form submission
-app.post('/signup', async (req, res) => {
-  const { username, password } = req.body;
+  return null;
+}
 
-  try {
-    // Check if the username is already taken
-    const existingUser = await User.findOne({ where: { username } });
+function extractLinkedIn(text) {
+  const m = text.match(/(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/([a-zA-Z0-9\-_%]+)\/?/i);
+  return m ? `https://linkedin.com/in/${m[1]}` : null;
+}
 
-    if (existingUser) {
-      return styledHtmlResponse(res, '<h2>Error: Username already taken. Please choose another.</h2>');
+function extractTwitterFromText(text) {
+  const m = text.match(/(?:https?:\/\/)?(?:www\.)?(?:twitter\.com|x\.com)\/([a-zA-Z0-9_]{1,20})/i);
+  return m ? `https://twitter.com/${m[1]}` : null;
+}
+
+function normalizeUrl(url) {
+  if (!url) return null;
+  return url.startsWith('http') ? url : `https://${url}`;
+}
+
+function extractOthers(blog, bio, linkedin, twitter) {
+  const others = [];
+  const seen = new Set();
+
+  // Website / blog
+  if (blog) {
+    const blogNorm = blog.toLowerCase();
+    const isLinkedIn = blogNorm.includes('linkedin.com');
+    const isTwitter = blogNorm.includes('twitter.com') || blogNorm.includes('x.com');
+    if (!isLinkedIn && !isTwitter) {
+      others.push({ label: 'Website', url: normalizeUrl(blog) });
+      seen.add('website');
     }
-
-    // Hash the password before saving to the database
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Create a new user
-    const newUser = await User.create({
-      username,
-      password: hashedPassword,
-    });
-
-    // Redirect to the login page after successful signup
-    res.redirect('/login');
-  } catch (error) {
-    console.error(error);
-    errorResponse(res, 500, 'Internal Server Error');
   }
-});
 
-// Login route
-app.get('/login', (req, res) => {
-  styledHtmlResponse(res, `
-    <h1>Login</h1>
-    <form action="/login" method="post">
-      <label for="username">Username:</label>
-      <input type="text" id="username" name="username" required>
-      <label for="password">Password:</label>
-      <input type="password" id="password" name="password" required>
-      <button type="submit">Login</button>
-    </form>
-    <br>
-    <a href="/auth/google">Login with Google</a> | <a href="/signup">Sign Up</a> | <a href="/logout">Logout</a> | <a href="/protected">Protected Route</a> | <a href="/">Home</a> | <a href="/dashboard">User Dashboard</a>
-  `);
-  
-});
+  // Social media in bio
+  const patterns = [
+    { label: 'Telegram',  re: /(?:t\.me|telegram\.(?:me|org))\/([a-zA-Z0-9_]+)/i,    base: 'https://t.me/' },
+    { label: 'Instagram', re: /(?:instagram\.com|instagr\.am)\/([a-zA-Z0-9_.]+)\/?/i, base: 'https://instagram.com/' },
+    { label: 'YouTube',   re: /youtube\.com\/(?:c\/|channel\/|@)?([a-zA-Z0-9_\-]+)/i,  base: 'https://youtube.com/@' },
+    { label: 'Dev.to',    re: /dev\.to\/([a-zA-Z0-9_]+)/i,                             base: 'https://dev.to/' },
+    { label: 'Medium',    re: /medium\.com\/@([a-zA-Z0-9_]+)/i,                        base: 'https://medium.com/@' },
+    { label: 'Hashnode',  re: /([a-zA-Z0-9\-]+)\.hashnode\.dev/i,                      base: 'https://', suffix: '.hashnode.dev' },
+  ];
 
-// Handle login form submission
-app.post('/login', passport.authenticate('local', {
-  successRedirect: '/',
-  failureRedirect: '/login',
-}));
-
-// Logout route
-app.get('/logout', (req, res) => {
-  req.logout((err) => {
-    if (err) {
-      console.error(err);
-      return styledHtmlResponse(res, '<h2>Error logging out.</h2>');
+  for (const { label, re, base, suffix } of patterns) {
+    if (seen.has(label.toLowerCase())) continue;
+    const m = bio.match(re);
+    if (m) {
+      const url = suffix ? `${base}${m[1]}${suffix}` : `${base}${m[1]}`;
+      others.push({ label, url });
+      seen.add(label.toLowerCase());
     }
-    res.redirect('/');
-  });
-});
-
-// Protected route
-app.get('/protected', isLoggedIn, (req, res) => {
-  styledHtmlResponse(res, `<h1>Protected Route - Welcome, ${req.user.username}!</h1>`);
-});
-
-// User dashboard route
-app.get('/dashboard', isLoggedIn, async (req, res) => {
-  // Fetch and display information about recent GitHub activity for the authenticated user
-  const username = req.user.username;
-
-  try {
-    // Use the GitHub API to fetch user-specific information (e.g., recent commits, issues, pull requests)
-    const userActivity = await fetchUserActivity(username);
-
-    // Render the user dashboard with fetched information
-    const htmlResponse = `
-      <h1>${username}'s Dashboard</h1>
-      <h2>Recent GitHub Activity</h2>
-      <ul>
-        ${userActivity.map(activity => `
-          <li>
-            <strong>${activity.repo}</strong>
-            <p>${activity.type}: ${activity.title}</p>
-          </li>
-        `).join('')}
-      </ul>
-    `;
-
-    styledHtmlResponse(res, htmlResponse);
-  } catch (error) {
-    console.error(error);
-    errorResponse(res, 500, 'Internal Server Error');
   }
-});
 
-// Update the /profile route in app.js
-app.get('/profile', isLoggedIn, async (req, res) => {
-  const username = req.user.username;
+  return others;
+}
 
-  try {
-    // Fetch more detailed GitHub information for the authenticated user
-    const userGitHubInfo = await fetchUserGitHubInfo(username);
+// ─── Activity Helpers ──────────────────────────────────────────────────────────
+const THREE_MONTHS_MS = 90 * 24 * 60 * 60 * 1000;
 
-    // Render the user profile with fetched information using EJS view
-    res.render('profile', { username, userGitHubInfo });
-  } catch (error) {
-    console.error(error);
-    errorResponse(res, 500, 'Internal Server Error');
-  }
-});
+function isActiveWithin3Months(updatedAt) {
+  if (!updatedAt) return false;
+  return (Date.now() - new Date(updatedAt).getTime()) < THREE_MONTHS_MS;
+}
 
+function formatRelativeTime(dateStr) {
+  if (!dateStr) return 'Unknown';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return `${days} days ago`;
+  if (days < 30) return `${Math.floor(days / 7)} weeks ago`;
+  if (days < 365) return `${Math.floor(days / 30)} months ago`;
+  return `${Math.floor(days / 365)} years ago`;
+}
 
-// Implement a function to fetch user-specific GitHub activity
-const fetchUserActivity = async (username) => {
-  try {
-    // Use the GitHub API or any third-party npm package to fetch user activity
-    // Example: Fetch recent commits, issues, pull requests, etc.
-    const response = await axios.get(`https://api.github.com/users/${username}/events`);
-
-    // Process the response and extract relevant information
-    const userActivity = response.data.map(event => ({
-      type: event.type,
-      repo: event.repo.name,
-      title: event.payload.title || event.payload.commits[0].message,
-    }));
-
-    // Return the processed user activity
-    return userActivity;
-  } catch (error) {
-    console.error('Error fetching user activity:', error);
-
-    if (error.response) {
-      console.error('Response status:', error.response.status);
-      console.error('Response data:', error.response.data);
-    }
-
-    throw error;
-  }
+// ─── Stack → GitHub Search Mapping ────────────────────────────────────────────
+const STACKS = {
+  all:          { lang: null,         label: 'All Stacks' },
+  frontend:     { lang: 'javascript', label: 'Frontend (JS/TS/CSS)' },
+  backend:      { lang: 'python',     label: 'Backend (Python)' },
+  backend_node: { lang: 'typescript', label: 'Backend (Node/TS)' },
+  mern:         { lang: 'javascript', label: 'MERN Stack' },
+  mean:         { lang: 'javascript', label: 'MEAN Stack' },
+  fullstack:    { lang: 'javascript', label: 'Fullstack' },
+  edtech:       { lang: null,         keyword: 'edtech', label: 'EdTech' },
+  mobile:       { lang: 'dart',       label: 'Mobile (Flutter)' },
+  react_native: { lang: 'javascript', keyword: 'react-native', label: 'React Native' },
+  devops:       { lang: 'shell',      label: 'DevOps / SRE' },
+  datascience:  { lang: 'python',     keyword: 'data-science', label: 'Data Science' },
+  blockchain:   { lang: 'solidity',   label: 'Blockchain / Web3' },
+  java:         { lang: 'java',       label: 'Java' },
+  php:          { lang: 'php',        label: 'PHP' },
+  golang:       { lang: 'go',         label: 'Go / Golang' },
+  ruby:         { lang: 'ruby',       label: 'Ruby / Rails' },
 };
 
+// ─── Process a single GitHub profile ──────────────────────────────────────────
+function processProfile(profile) {
+  const contacts = extractContacts(profile);
+  return {
+    login: profile.login,
+    name: profile.name || profile.login,
+    avatar: profile.avatar_url,
+    url: profile.html_url,
+    bio: profile.bio || '',
+    location: profile.location || '',
+    company: profile.company || '',
+    publicRepos: profile.public_repos || 0,
+    followers: profile.followers || 0,
+    updatedAt: profile.updated_at,
+    createdAt: profile.created_at,
+    active: isActiveWithin3Months(profile.updated_at),
+    lastSeen: formatRelativeTime(profile.updated_at),
+    contacts,
+    hasContacts: !!(contacts.email || contacts.whatsapp || contacts.linkedin || contacts.twitter || contacts.others.length)
+  };
+}
 
-// User dashboard route
-app.get('/dashboard', isLoggedIn, async (req, res) => {
-  // Fetch and display information about recent GitHub activity for the authenticated user
-  const username = req.user.username;
-
+// ─── Fetch and cache a single user profile ─────────────────────────────────────
+async function fetchUserProfile(login) {
   try {
-    // Use the GitHub API to fetch user-specific information (e.g., recent commits, issues, pull requests)
-    const userActivity = await fetchUserActivity(username);
+    const cached = await GithubCache.findOne({ username: login });
+    if (cached) return cached.data;
 
-    // Render the user dashboard with fetched information
-    const htmlResponse = `
-      <h1>${username}'s Dashboard</h1>
-      <h2>Recent GitHub Activity</h2>
-      <ul>
-        ${userActivity.map(activity => `
-          <li>
-            <strong>${activity.repo}</strong>
-            <p>${activity.type}: ${activity.title}</p>
-          </li>
-        `).join('')}
-      </ul>
-    `;
+    const res = await githubAxios.get(`/users/${login}`);
+    const profile = res.data;
 
-    styledHtmlResponse(res, htmlResponse);
-  } catch (error) {
-    console.error(error);
-    errorResponse(res, 500, 'Internal Server Error');
+    await GithubCache.findOneAndUpdate(
+      { username: login },
+      { data: profile, cachedAt: new Date() },
+      { upsert: true, new: true }
+    );
+    return profile;
+  } catch (err) {
+    if (err.response?.status !== 404) console.error(`Failed to fetch ${login}:`, err.message);
+    return null;
   }
+}
+
+// ─── Routes ────────────────────────────────────────────────────────────────────
+
+app.get('/', (req, res) => {
+  res.render('index', { user: req.user, stacks: STACKS, error: null });
 });
 
-// Signup route
-app.get('/signup', (req, res) => {
-  styledHtmlResponse(res, `
-    <h1>Sign Up</h1>
-    <form action="/signup" method="post">
-      <label for="username">Username:</label>
-      <input type="text" id="username" name="username" required>
-      <label for="password">Password:</label>
-      <input type="password" id="password" name="password" required>
-      <button type="submit">Sign Up</button>
-    </form>
-    <br>
-    <a href="/login">Login</a> | <a href="/logout">Logout</a> | <a href="/protected">Protected Route</a> | <a href="/">Home</a>
-  `);
-});
+// Main search
+app.get('/search', async (req, res) => {
+  const {
+    q = '',
+    location = '',
+    stack = 'all',
+    active = 'false',
+    batch = '50',
+  } = req.query;
 
-// Handle signup form submission
-app.post('/signup', async (req, res) => {
-  const { username, password } = req.body;
+  const batchSize = Math.min(Math.max(parseInt(batch) || 50, 10), 200);
+  const filterActive = active === 'true';
+  const stackConfig = STACKS[stack] || STACKS.all;
 
   try {
-    // Check if the username is already taken
-    const existingUser = await User.findOne({ where: { username } });
+    // Build search query string
+    let queryParts = [];
+    if (q.trim()) queryParts.push(q.trim());
+    if (location.trim()) queryParts.push(`location:"${location.trim()}"`);
+    if (stackConfig.lang) queryParts.push(`language:${stackConfig.lang}`);
+    if (stackConfig.keyword) queryParts.push(stackConfig.keyword);
+    if (queryParts.length === 0) queryParts.push('type:user repos:>0');
 
-    if (existingUser) {
-      return res.send('<h2>Error: Username already taken. Please choose another.</h2>');
+    const searchQuery = queryParts.join(' ');
+
+    // Determine how many pages to fetch
+    const needPages = batchSize > 100 ? 2 : 1;
+    let allSearchItems = [];
+
+    for (let pg = 1; pg <= needPages; pg++) {
+      const perPage = pg === 1 ? Math.min(batchSize, 100) : batchSize - 100;
+      if (perPage <= 0) break;
+
+      const searchRes = await githubAxios.get('/search/users', {
+        params: { q: searchQuery, per_page: perPage, page: pg, sort: 'joined', order: 'desc' }
+      });
+      allSearchItems.push(...(searchRes.data.items || []));
+
+      if (pg === 1) {
+        // Store total count from first page
+        req._totalCount = searchRes.data.total_count || 0;
+      }
+
+      // If we got fewer results than requested, no point fetching next page
+      if ((searchRes.data.items || []).length < perPage) break;
     }
 
-    // Hash the password before saving to the database
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const totalCount = req._totalCount || allSearchItems.length;
 
-    // Create a new user
-    const newUser = await User.create({
-      username,
-      password: hashedPassword,
+    // Fetch full profiles in parallel (concurrency-limited)
+    const profiles = await fetchWithConcurrency(
+      allSearchItems.slice(0, batchSize),
+      (item) => fetchUserProfile(item.login),
+      8
+    );
+
+    // Process and sort
+    let users = profiles.map(processProfile);
+
+    if (filterActive) {
+      users = users.filter(u => u.active);
+    }
+
+    // Sort: active users first, then by most recently updated
+    users.sort((a, b) => {
+      if (a.active !== b.active) return a.active ? -1 : 1;
+      return new Date(b.updatedAt) - new Date(a.updatedAt);
     });
 
-    // Redirect to the login page after a successful signup
-    res.redirect('/login');
-  } catch (error) {
-    console.error(error);
-    errorResponse(res, 500, 'Internal Server Error');
-  }
-});
+    // Stats
+    const stats = {
+      total: users.length,
+      withEmail: users.filter(u => u.contacts.email).length,
+      withWhatsApp: users.filter(u => u.contacts.whatsapp).length,
+      withLinkedIn: users.filter(u => u.contacts.linkedin).length,
+      active: users.filter(u => u.active).length,
+    };
 
-// Login route
-app.get('/login', (req, res) => {
-  styledHtmlResponse(res, `
-    <h1>Login</h1>
-    <form action="/login" method="post">
-      <label for="username">Username:</label>
-      <input type="text" id="username" name="username" required>
-      <label for="password">Password:</label>
-      <input type="password" id="password" name="password" required>
-      <button type="submit">Login</button>
-    </form>
-    <br>
-    <a href="/auth/google">Login with Google</a> | <a href="/signup">Sign Up</a> | <a href="/logout">Logout</a> | <a href="/protected">Protected Route</a> | <a href="/">Home</a> | <a href="/dashboard">User Dashboard</a>
-  `);
-});
+    res.render('results', {
+      users,
+      query: req.query,
+      totalCount,
+      batchSize,
+      stacks: STACKS,
+      stackLabel: stackConfig.label,
+      stats,
+      user: req.user,
+    });
 
-// Handle login form submission
-app.post('/login', passport.authenticate('local', {
-  successRedirect: '/',
-  failureRedirect: '/login',
-}));
+  } catch (err) {
+    console.error('Search error:', err.response?.data || err.message);
 
-// Logout route
-app.get('/logout', (req, res) => {
-  req.logout((err) => {
-    if (err) {
-      console.error(err);
-      return res.redirect('/');
+    let errMsg = 'Something went wrong. Please try again.';
+    if (err.response?.status === 403) {
+      errMsg = 'GitHub API rate limit reached. Add a GITHUB_TOKEN to your .env to get 5000 requests/hour.';
+    } else if (err.response?.status === 422) {
+      errMsg = 'Invalid search query. Try different keywords or filters.';
+    } else if (err.code === 'ECONNABORTED') {
+      errMsg = 'Request timed out. GitHub may be slow — please try again.';
     }
-    res.redirect('/');
-  });
-});
 
-// Protected route
-app.get('/protected', isLoggedIn, (req, res) => {
-  styledHtmlResponse(res, `<h1>Protected Route - Welcome, ${req.user.username}!</h1>`);
-});
-
-// Google authentication route
-app.get('/auth/google',
-  passport.authenticate('google', { scope: ['https://www.googleapis.com/auth/plus.login'] })
-);
-
-// Google authentication callback route
-app.get('/auth/google/callback',
-  passport.authenticate('google', { failureRedirect: '/' }),
-  function(req, res) {
-    // Successful authentication, redirect home.
-    res.redirect('/');
+    res.render('index', { user: req.user, stacks: STACKS, error: errMsg });
   }
-);
-
-// Updated app.listen to make the server accessible externally
-app.listen(port, '0.0.0.0', () => {
-  console.log(`Server listening at http://0.0.0.0:${port}`);
 });
 
+// ─── Auth Routes ────────────────────────────────────────────────────────────────
+
+app.get('/signup', (req, res) => {
+  if (req.isAuthenticated()) return res.redirect('/');
+  res.render('auth', { page: 'signup', error: null });
+});
+
+app.post('/signup', async (req, res) => {
+  const { username, password } = req.body;
+  if (!username?.trim() || !password?.trim()) {
+    return res.render('auth', { page: 'signup', error: 'Username and password are required.' });
+  }
+  try {
+    const existing = await AppUser.findOne({ username: username.toLowerCase() });
+    if (existing) return res.render('auth', { page: 'signup', error: 'Username already taken.' });
+    const hashed = await bcrypt.hash(password, 12);
+    await AppUser.create({ username: username.toLowerCase(), password: hashed });
+    res.redirect('/login');
+  } catch (err) {
+    console.error(err);
+    res.render('auth', { page: 'signup', error: 'Error creating account. Please try again.' });
+  }
+});
+
+app.get('/login', (req, res) => {
+  if (req.isAuthenticated()) return res.redirect('/');
+  res.render('auth', { page: 'login', error: null });
+});
+
+app.post('/login', (req, res, next) => {
+  passport.authenticate('local', (err, user, info) => {
+    if (err) return next(err);
+    if (!user) return res.render('auth', { page: 'login', error: info?.message || 'Login failed.' });
+    req.logIn(user, (err) => {
+      if (err) return next(err);
+      res.redirect('/');
+    });
+  })(req, res, next);
+});
+
+app.get('/logout', (req, res) => {
+  req.logout(() => res.redirect('/'));
+});
+
+app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
+app.get('/auth/google/callback',
+  passport.authenticate('google', { failureRedirect: '/login' }),
+  (req, res) => res.redirect('/')
+);
+
+// ─── Start ─────────────────────────────────────────────────────────────────────
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 GitHub Contact Explorer running at http://0.0.0.0:${PORT}`);
+});

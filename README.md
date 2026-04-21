@@ -1,68 +1,83 @@
-# GitHub User Info App
+# GitHub Contact Explorer v2
 
-This is a simple Express.js application that allows users to retrieve information about GitHub users, their repositories, and contributors to specific repositories.
+Find GitHub developers and extract their contact information — emails, WhatsApp numbers, LinkedIn profiles, and more.
 
 ## Features
 
-1. **User Information:**
-   - Enter one or more GitHub usernames to get information about their followers and following.
+- **Contact Extraction** — Pulls emails, WhatsApp numbers (wa.me links + phone patterns), LinkedIn, Twitter, Telegram, and other socials from GitHub profiles
+- **Stack Filtering** — Filter by Frontend, Backend, MERN, MEAN, Fullstack, EdTech, Mobile, DevOps, and more
+- **Location Filtering** — Filter by city or country (e.g. "Nairobi", "Kenya", "Zambia")
+- **Activity Filter** — Exclude users inactive for more than 3 months
+- **Batch Size** — Display 50, 100, or 200 users per search
+- **Smart Ranking** — Results sorted: active users first, then by most recently active
+- **MongoDB Cache** — GitHub profiles cached for 24 hours to respect rate limits
+- **Auth** — Local signup/login + Google OAuth
 
-2. **Repository Information:**
-   - Retrieve a list of repositories for a specific GitHub user, including details such as repository name, description, stars, and forks.
+---
 
-3. **Contributors Information:**
-   - Get a list of contributors for a particular GitHub repository, along with their contribution counts.
+## Setup
 
-## Prerequisites
+### 1. Install dependencies
 
-- [Node.js](https://nodejs.org/) installed on your machine.
-- An internet connection to access the GitHub API.
-
-## Installation
-
-1. Clone the repository:
-
-   ```bash
-   git clone https://github.com/your-username/your-repo.git
-Navigate to the project directory:
-
-cd your-repo
-Install dependencies:
-
+```bash
 npm install
-Usage
-Start the server:
+```
 
+### 2. Configure environment
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your values:
+
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | MongoDB Atlas connection string |
+| `GITHUB_TOKEN` | **Important!** Personal access token from [github.com/settings/tokens](https://github.com/settings/tokens). Without it: 60 req/hr. With it: 5000 req/hr. |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
+| `GOOGLE_CALLBACK_URL` | Must match exactly in Google Console |
+| `SESSION_SECRET` | Any long random string |
+
+### 3. Run
+
+```bash
+# Development
+npm run dev
+
+# Production
 npm start
-Open a web browser and access the application at http://localhost:3000.
+```
 
-Follow the on-screen instructions to retrieve GitHub user information, repository details, and contributors.
+---
 
-Routes
-/github/users:
+## Google OAuth Setup
 
-Retrieve information about GitHub users.
-Parameters: usernames (comma-separated).
-/github/repos/:username:
+In [Google Cloud Console](https://console.cloud.google.com):
 
-Retrieve a list of repositories for a specific GitHub user.
-Parameters: username.
-/github/repos/:owner/:repo/contributors:
+1. Go to **APIs & Services → Credentials**
+2. Edit your OAuth client
+3. Add to **Authorized redirect URIs**:
+   - `https://githubapi-ox7c.onrender.com/auth/google/callback`
 
-Retrieve contributors for a specific GitHub repository.
-Parameters: owner (GitHub username) and repo (repository name).
-Examples
-Retrieve user information:
+---
 
-http://localhost:3000/github/users?usernames=billkolos
-Retrieve user repositories:
+## Deployment on Render
 
-http://localhost:3000/github/repos/billkolos
-Retrieve contributors to a repository:
+1. Push to GitHub
+2. Create new **Web Service** on Render
+3. Set **Build Command**: `npm install`
+4. Set **Start Command**: `node app.js`
+5. Add all environment variables from `.env` in the Render dashboard
+6. Deploy
 
-http://localhost:3000/github/repos/billkolos/printf/contributors
-Contributing
-Feel free to contribute to this project by opening issues, submitting pull requests, or suggesting improvements. Your contributions are highly appreciated.
+---
 
-License
-This project is licensed under the MIT License - see the LICENSE file for details
+## Notes on Rate Limits
+
+GitHub's unauthenticated API allows **60 requests/hour**. Searching 50 users requires ~51 requests (1 search + 50 profiles). Without a token, you can only search small batches.
+
+**Get a token:** [github.com/settings/tokens](https://github.com/settings/tokens) → Generate new token (classic) → No scopes needed for public data → Add to `.env` as `GITHUB_TOKEN`.
+
+With a token you get **5,000 requests/hour** — enough for multiple 200-user searches.
