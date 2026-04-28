@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GitHub Contact Explorer</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #f6f8fa; --surface: #fff; --border: #d0d7de;
+      --blue: #0969da; --blue-hover: #0550ae; --blue-bg: #ddf4ff;
+      --text: #24292f; --muted: #57606a;
+      --green: #1a7f37; --green-bg: #dafbe1;
+      --shadow: 0 1px 3px rgba(36,41,47,.08), 0 6px 20px rgba(36,41,47,.06);
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    nav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; align-items: center; justify-content: space-between; height: 56px; }
+    .nav-brand { font-weight: 700; font-size: 16px; display: flex; align-items: center; gap: 8px; color: var(--text); text-decoration: none; }
+    .nav-links { display: flex; gap: 8px; align-items: center; }
+    .nav-links a { font-size: 13px; color: var(--muted); text-decoration: none; padding: 5px 10px; border-radius: 6px; transition: background .15s; }
+    .nav-links a:hover { background: var(--bg); color: var(--text); }
+    .btn-primary { background: var(--blue) !important; color: #fff !important; font-size: 13px; padding: 6px 14px; border-radius: 6px; }
+    .btn-primary:hover { background: var(--blue-hover) !important; }
+
+    .hero { max-width: 760px; margin: 60px auto 0; padding: 0 20px 80px; text-align: center; }
+    .hero-icon { font-size: 50px; margin-bottom: 16px; }
+    .hero h1 { font-size: 30px; font-weight: 700; margin-bottom: 10px; line-height: 1.25; }
+    .hero p  { font-size: 16px; color: var(--muted); margin-bottom: 36px; line-height: 1.6; }
+
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; box-shadow: var(--shadow); text-align: left; }
+
+    /* ── Grid rows ── */
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+    .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+    .row-bottom { display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 12px; align-items: end; }
+
+    label { display: block; font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 5px; text-transform: uppercase; letter-spacing: .5px; }
+
+    input[type="text"], input[type="number"], select {
+      width: 100%; padding: 8px 11px; border: 1px solid var(--border); border-radius: 6px;
+      font-size: 14px; color: var(--text); background: var(--surface); outline: none;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(9,105,218,.1); }
+
+    /* Custom batch input */
+    .batch-wrap { position: relative; }
+    .batch-wrap input { padding-right: 52px; }
+    .batch-suffix { position: absolute; right: 11px; top: 50%; transform: translateY(-50%); font-size: 12px; color: var(--muted); pointer-events: none; }
+
+    .chk-label { display: flex; align-items: center; gap: 8px; padding: 8px 11px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--muted); font-weight: 600; transition: border-color .15s, background .15s; height: 36px; white-space: nowrap; }
+    .chk-label:has(input:checked) { border-color: var(--green); background: #f0fff4; color: var(--green); }
+    .chk-label input { width: 14px; height: 14px; accent-color: var(--green); margin: 0; }
+
+    .btn-search { background: var(--blue); color: #fff; border: none; padding: 0 22px; height: 36px; border-radius: 6px; font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap; transition: background .15s; }
+    .btn-search:hover { background: var(--blue-hover); }
+
+    .error-box { background: #fff5f5; border: 1px solid #fca5a5; border-radius: 8px; padding: 12px 16px; color: #991b1b; font-size: 14px; margin-bottom: 18px; }
+
+    /* ── Persona pills quick-select ── */
+    .persona-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+    .persona-pill {
+      padding: 5px 13px; border: 1px solid var(--border); border-radius: 20px;
+      font-size: 12px; font-weight: 600; cursor: pointer; color: var(--muted);
+      background: var(--surface); transition: all .15s; white-space: nowrap; user-select: none;
+    }
+    .persona-pill:hover { background: var(--blue-bg); border-color: var(--blue); color: var(--blue); }
+    .persona-pill.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+
+    .section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+    .divider { height: 1px; background: var(--border); margin: 16px 0; }
+
+    .features { max-width: 760px; margin: 28px auto 0; padding: 0 20px; display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; text-align: center; }
+    .fi { padding: 14px; }
+    .fi .icon { font-size: 22px; margin-bottom: 8px; }
+    .fi strong { display: block; font-size: 13px; margin-bottom: 3px; }
+    .fi span { font-size: 12px; color: var(--muted); }
+
+    @media (max-width: 620px) {
+      .row2, .row3, .row-bottom { grid-template-columns: 1fr; }
+      .features { grid-template-columns: 1fr; }
+      .hero h1 { font-size: 24px; }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a class="nav-brand" href="/">🔍 GitHub Contact Explorer</a>
+  <div class="nav-links">
+    <% if (user) { %>
+      <span style="font-size:12px;color:var(--muted)"><%=user.displayName||user.username%></span>
+      <a href="/logout">Logout</a>
+    <% } else { %>
+      <a href="/login">Login</a>
+      <a href="/signup" class="btn-primary">Sign Up</a>
+    <% } %>
+  </div>
+</nav>
+
+<div class="hero">
+  <div class="hero-icon">🌍</div>
+  <h1>Find GitHub People & Extract Their Contacts</h1>
+  <p>Target developers, investors, educators, school owners, and more. Extract emails, phone numbers, WhatsApp, LinkedIn — then download everything.</p>
+
+  <% if (error) { %><div class="error-box">⚠️ <%= error %></div><% } %>
+
+  <form class="card" action="/search" method="GET">
+    <!-- Row 1: Keywords + Location -->
+    <div class="row2">
+      <div>
+        <label for="q">Search Keywords</label>
+        <input type="text" id="q" name="q" placeholder="e.g. developer, investor, teacher…">
+      </div>
+      <div>
+        <label for="location">Location / Country</label>
+        <input type="text" id="location" name="location" placeholder="e.g. Nairobi, Kenya, Zambia…">
+      </div>
+    </div>
+
+    <!-- Row 2: Target persona (pills) -->
+    <div class="section-label">🎯 Who are you targeting?</div>
+    <div class="persona-pills" id="personaPills">
+      <% Object.entries(personas).forEach(([key, p]) => { %>
+        <span class="persona-pill" data-key="<%=key%>"><%=p.label%></span>
+      <% }) %>
+    </div>
+    <input type="hidden" name="persona" id="personaInput" value="any">
+
+    <div class="divider"></div>
+
+    <!-- Row 3: Stack + bottom controls -->
+    <div class="row2" style="margin-bottom:14px">
+      <div>
+        <label for="stack">Tech Stack Filter</label>
+        <select id="stack" name="stack">
+          <% Object.entries(stacks).forEach(([key,s]) => { %>
+            <option value="<%=key%>"><%=s.label%></option>
+          <% }) %>
+        </select>
+      </div>
+      <div>
+        <label for="batch">How Many Users?</label>
+        <div class="batch-wrap">
+          <input type="number" id="batch" name="batch" value="50" min="5" max="500" placeholder="e.g. 75">
+          <span class="batch-suffix">users</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="row-bottom">
+      <div style="grid-column:1/3"></div>
+      <label class="chk-label" style="margin-bottom:0">
+        <input type="checkbox" name="active" value="true">
+        ✅ Active only (90d)
+      </label>
+      <button type="submit" class="btn-search">Search →</button>
+    </div>
+  </form>
+</div>
+
+<div class="features">
+  <div class="fi"><div class="icon">📧</div><strong>Emails</strong><span>Pulled from GitHub profile + bio text</span></div>
+  <div class="fi"><div class="icon">📱</div><strong>Phone Numbers</strong><span>Any number in profile, wa.me, or bio text</span></div>
+  <div class="fi"><div class="icon">⬇️</div><strong>Bulk Download</strong><span>Download all contacts as a text file</span></div>
+</div>
+
+<script>
+  // Persona pill toggle
+  const pills = document.querySelectorAll('.persona-pill');
+  const input = document.getElementById('personaInput');
+  pills[0].classList.add('active'); // default "any"
+
+  pills.forEach(pill => {
+    pill.addEventListener('click', () => {
+      pills.forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+      input.value = pill.dataset.key;
+    });
+  });
+</script>
+
+</body>
+</html>

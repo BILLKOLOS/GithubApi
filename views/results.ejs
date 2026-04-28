@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Results · GitHub Contact Explorer</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #f6f8fa; --surface: #fff; --border: #d0d7de;
+      --blue: #0969da; --blue-hover: #0550ae; --blue-bg: #ddf4ff;
+      --text: #24292f; --muted: #57606a;
+      --green: #1a7f37; --green-bg: #dafbe1;
+      --orange: #bc4c00; --orange-bg: #fff1e5;
+      --yellow: #9a6700; --yellow-bg: #fff8c5;
+      --shadow: 0 1px 3px rgba(36,41,47,.08), 0 4px 16px rgba(36,41,47,.04);
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); }
+
+    /* ── Download Banner ── */
+    #download-banner {
+      position: sticky; top: 0; z-index: 200;
+      background: #0550ae; color: #fff;
+      padding: 0 24px;
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; flex-wrap: wrap;
+      min-height: 52px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.2);
+    }
+    .dl-msg { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .dl-count { background: rgba(255,255,255,.2); padding: 2px 10px; border-radius: 20px; font-size: 13px; }
+    .dl-actions { display: flex; gap: 8px; }
+    .btn-download {
+      background: #fff; color: #0550ae; border: none; padding: 8px 20px;
+      border-radius: 6px; font-size: 14px; font-weight: 800; cursor: pointer;
+      transition: background .15s; white-space: nowrap; letter-spacing: .2px;
+    }
+    .btn-download:hover { background: #e6f0ff; }
+    .btn-dismiss { background: transparent; border: 1px solid rgba(255,255,255,.4); color: #fff; padding: 7px 14px; border-radius: 6px; font-size: 13px; cursor: pointer; transition: background .15s; }
+    .btn-dismiss:hover { background: rgba(255,255,255,.1); }
+    #download-banner.hidden { display: none; }
+
+    /* ── Nav ── */
+    nav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; align-items: center; justify-content: space-between; height: 56px; }
+    .nav-brand { font-weight: 700; font-size: 15px; color: var(--text); text-decoration: none; display: flex; align-items: center; gap: 8px; }
+    .nav-links { display: flex; gap: 8px; }
+    .nav-links a { font-size: 13px; color: var(--muted); text-decoration: none; padding: 5px 10px; border-radius: 6px; transition: background .15s; }
+    .nav-links a:hover { background: var(--bg); color: var(--text); }
+    .btn-sm { border: 1px solid var(--border); color: var(--text) !important; }
+
+    /* ── Filter bar ── */
+    .filter-bar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 24px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .filter-bar input, .filter-bar select { padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; color: var(--text); background: var(--surface); outline: none; transition: border-color .15s; }
+    .filter-bar input { width: 150px; }
+    .filter-bar input:focus, .filter-bar select:focus { border-color: var(--blue); }
+    .filter-bar .batch-mini { width: 80px; }
+    .chk-label-sm { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+    .chk-label-sm input { accent-color: var(--green); margin: 0; }
+    .btn-apply { background: var(--blue); color: #fff; border: none; padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background .15s; }
+    .btn-apply:hover { background: var(--blue-hover); }
+
+    /* ── Page ── */
+    .page { max-width: 1100px; margin: 0 auto; padding: 20px 24px; }
+
+    /* ── Summary ── */
+    .summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 18px; }
+    .pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+    .pill-blue   { background: var(--blue-bg);   color: var(--blue);   }
+    .pill-green  { background: var(--green-bg);  color: var(--green);  }
+    .pill-orange { background: var(--orange-bg); color: var(--orange); }
+    .pill-yellow { background: var(--yellow-bg); color: var(--yellow); }
+    .pill-gray   { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    .no-results { text-align: center; padding: 60px 24px; color: var(--muted); }
+    .no-results .icon { font-size: 48px; margin-bottom: 16px; }
+    .no-results h3 { font-size: 18px; margin-bottom: 8px; color: var(--text); }
+
+    /* ── Grid ── */
+    .user-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+
+    /* ── Card ── */
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; transition: box-shadow .15s, border-color .15s; }
+    .card:hover { box-shadow: var(--shadow); border-color: #b0bec5; }
+    .card.has-contacts { border-left: 3px solid var(--blue); }
+
+    .card-header { padding: 14px; display: flex; gap: 10px; align-items: flex-start; }
+    .avatar { width: 46px; height: 46px; border-radius: 50%; border: 2px solid var(--border); flex-shrink: 0; }
+    .user-meta { flex: 1; min-width: 0; }
+    .user-name { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .user-name a { color: var(--text); text-decoration: none; }
+    .user-name a:hover { color: var(--blue); }
+    .user-login { font-size: 12px; color: var(--muted); }
+    .user-login a { color: var(--muted); text-decoration: none; }
+    .user-login a:hover { color: var(--blue); }
+    .badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 20px; flex-shrink: 0; white-space: nowrap; }
+    .badge-active { background: var(--green-bg); color: var(--green); }
+    .badge-quiet  { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+
+    .card-detail { padding: 0 14px 10px; }
+    .meta-line { font-size: 12px; color: var(--muted); margin-top: 5px; display: flex; align-items: center; gap: 5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .bio-text { font-size: 12px; color: var(--muted); margin-top: 7px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+    /* ── Contacts ── */
+    .contacts { padding: 10px 14px; border-top: 1px solid var(--bg); flex: 1; }
+    .contacts-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 7px; }
+
+    .cr { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; }
+    .ci { font-size: 13px; flex-shrink: 0; width: 16px; text-align: center; }
+    .cv { font-size: 12px; color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cv a { color: var(--text); text-decoration: none; }
+    .cv a:hover { color: var(--blue); text-decoration: underline; }
+    .ca { display: flex; gap: 4px; flex-shrink: 0; }
+    .btn-c, .btn-o {
+      background: none; border: 1px solid var(--border); border-radius: 4px;
+      font-size: 10px; padding: 2px 6px; cursor: pointer; color: var(--muted);
+      transition: background .1s; white-space: nowrap; text-decoration: none;
+      display: inline-flex; align-items: center;
+    }
+    .btn-c:hover, .btn-o:hover { background: var(--bg); color: var(--text); }
+    .btn-wa { border-color: #25d366; color: #128c7e; }
+    .btn-wa:hover { background: #e8fff2; }
+
+    /* Phone entries */
+    .phone-wa { color: #128c7e; }
+    .phone-plain { color: var(--text); }
+
+    .no-contacts { font-size: 11px; color: #bbb; font-style: italic; padding: 2px 0; }
+
+    .others-row { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 3px; }
+    .oc { font-size: 11px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 20px; color: var(--muted); text-decoration: none; background: var(--bg); transition: all .12s; }
+    .oc:hover { background: var(--blue-bg); color: var(--blue); border-color: var(--blue); }
+
+    /* ── Footer ── */
+    .card-footer { padding: 8px 14px; border-top: 1px solid var(--bg); background: var(--bg); display: flex; align-items: center; justify-content: space-between; }
+    .footer-stats { display: flex; gap: 10px; }
+    .stat-item { font-size: 11px; color: var(--muted); }
+    .last-seen { font-size: 11px; color: var(--muted); }
+
+    /* ── Toast ── */
+    #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #24292f; color: #fff; padding: 8px 18px; border-radius: 20px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 999; }
+    #toast.show { opacity: 1; }
+
+    @media (max-width: 640px) {
+      .page { padding: 14px 16px; }
+      .user-grid { grid-template-columns: 1fr; }
+      .filter-bar input { width: 120px; }
+      #download-banner { padding: 10px 16px; }
+      .dl-msg { font-size: 13px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Download Banner ── -->
+<% if (stats.withEmail > 0 || stats.withPhone > 0) { %>
+<div id="download-banner">
+  <div class="dl-msg">
+    🎯
+    <% if (stats.withEmail > 0) { %>
+      <span class="dl-count">📧 <%= stats.withEmail %> EMAILS FOUND</span>
+    <% } %>
+    <% if (stats.withPhone > 0) { %>
+      <span class="dl-count">📱 <%= stats.withPhone %> NUMBERS FOUND</span>
+    <% } %>
+    &nbsp;DOWNLOAD NOW?
+  </div>
+  <div class="dl-actions">
+    <button class="btn-download" onclick="downloadContacts()">⬇ DOWNLOAD .TXT</button>
+    <button class="btn-dismiss" onclick="document.getElementById('download-banner').classList.add('hidden')">Dismiss</button>
+  </div>
+</div>
+<% } %>
+
+<nav>
+  <a class="nav-brand" href="/">🔍 GitHub Contact Explorer</a>
+  <div class="nav-links">
+    <a href="/" class="nav-links btn-sm">← New Search</a>
+    <% if (user) { %><a href="/logout">Logout</a><% } else { %><a href="/login">Login</a><% } %>
+  </div>
+</nav>
+
+<!-- ── Re-filter bar ── -->
+<div class="filter-bar">
+  <form action="/search" method="GET" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1">
+    <input type="text"   name="q"        placeholder="Keywords…"  value="<%= query.q        || '' %>">
+    <input type="text"   name="location" placeholder="Location…"  value="<%= query.location || '' %>">
+    <select name="persona">
+      <% Object.entries(personas).forEach(([key,p]) => { %>
+        <option value="<%=key%>" <%=query.persona===key?'selected':''%>><%=p.label%></option>
+      <% }) %>
+    </select>
+    <select name="stack">
+      <% Object.entries(stacks).forEach(([key,s]) => { %>
+        <option value="<%=key%>" <%=query.stack===key?'selected':''%>><%=s.label%></option>
+      <% }) %>
+    </select>
+    <input type="number" name="batch" class="batch-mini" value="<%=batchSize%>" min="5" max="500" placeholder="50">
+    <label class="chk-label-sm"><input type="checkbox" name="active" value="true" <%=query.active==='true'?'checked':''%>> Active only</label>
+    <button type="submit" class="btn-apply">Update</button>
+  </form>
+</div>
+
+<div class="page">
+
+  <!-- Summary row -->
+  <div class="summary">
+    <div class="chips">
+      <strong style="font-size:14px"><%= users.length %> developers</strong>
+      <% if (query.persona && query.persona !== 'any') { %><span class="pill pill-blue">🎯 <%=personaLabel%></span><% } %>
+      <% if (query.location) { %><span class="pill pill-blue">📍 <%=query.location%></span><% } %>
+      <% if (query.stack && query.stack !== 'all') { %><span class="pill pill-blue">⚙️ <%=stackLabel%></span><% } %>
+      <% if (query.active === 'true') { %><span class="pill pill-green">✅ Active</span><% } %>
+      <span class="pill pill-gray"><%= totalCount.toLocaleString() %> total on GitHub</span>
+    </div>
+    <div class="chips">
+      <span class="pill pill-green">📧 <%= stats.withEmail %> emails</span>
+      <span class="pill pill-yellow">📱 <%= stats.withPhone %> numbers</span>
+      <span class="pill pill-orange">💼 <%= stats.withLinkedIn %> LinkedIn</span>
+    </div>
+  </div>
+
+  <% if (!users.length) { %>
+  <div class="no-results">
+    <div class="icon">🔭</div>
+    <h3>No results found</h3>
+    <p>Try different keywords, a broader location, or change the persona filter.</p>
+  </div>
+  <% } else { %>
+
+  <div class="user-grid">
+    <% users.forEach(u => { %>
+    <div class="card <%=u.hasContacts?'has-contacts':''%>">
+
+      <div class="card-header">
+        <img class="avatar" src="<%=u.avatar%>" alt="<%=u.login%>" loading="lazy">
+        <div class="user-meta">
+          <div class="user-name"><a href="<%=u.url%>" target="_blank" rel="noopener"><%=u.name%></a></div>
+          <div class="user-login"><a href="<%=u.url%>" target="_blank" rel="noopener">@<%=u.login%></a></div>
+        </div>
+        <span class="badge <%=u.active?'badge-active':'badge-quiet'%>"><%=u.active?'● Active':'○ Quiet'%></span>
+      </div>
+
+      <div class="card-detail">
+        <%if(u.location){%><div class="meta-line">📍 <%=u.location%></div><%}%>
+        <%if(u.company){%><div class="meta-line">🏢 <%=u.company.replace(/^@/,'')%></div><%}%>
+        <%if(u.bio){%><div class="bio-text"><%=u.bio%></div><%}%>
+      </div>
+
+      <div class="contacts">
+        <div class="contacts-label">Contact Info</div>
+
+        <%# Email %>
+        <% if (u.contacts.email) { %>
+        <div class="cr">
+          <span class="ci">📧</span>
+          <span class="cv"><%=u.contacts.email%></span>
+          <div class="ca">
+            <button class="btn-c" onclick="copyText('<%=u.contacts.email%>')">Copy</button>
+            <a class="btn-o" href="mailto:<%=u.contacts.email%>">Mail ↗</a>
+          </div>
+        </div>
+        <% } %>
+
+        <%# Phone numbers — all of them %>
+        <% if (u.contacts.phones && u.contacts.phones.length > 0) { %>
+          <% u.contacts.phones.forEach(ph => { %>
+          <div class="cr">
+            <span class="ci"><%=ph.isWhatsApp ? '📱' : '📞'%></span>
+            <span class="cv <%=ph.isWhatsApp?'phone-wa':'phone-plain'%>">
+              <% if (ph.isWhatsApp) { %>
+                <a href="<%=ph.url%>" target="_blank" rel="noopener"><%=ph.number%> <small style="opacity:.7">(WA)</small></a>
+              <% } else { %>
+                <%=ph.number%>
+              <% } %>
+            </span>
+            <div class="ca">
+              <button class="btn-c" onclick="copyText('<%=ph.number%>')">Copy</button>
+              <a class="btn-o btn-wa" href="<%=ph.url%>" target="_blank" rel="noopener">WA ↗</a>
+            </div>
+          </div>
+          <% }) %>
+        <% } %>
+
+        <%# LinkedIn %>
+        <% if (u.contacts.linkedin) { %>
+        <div class="cr">
+          <span class="ci">💼</span>
+          <span class="cv"><a href="<%=u.contacts.linkedin%>" target="_blank" rel="noopener"><%=u.contacts.linkedin.replace('https://','')%></a></span>
+          <div class="ca"><a class="btn-o" href="<%=u.contacts.linkedin%>" target="_blank" rel="noopener">Open ↗</a></div>
+        </div>
+        <% } %>
+
+        <%# Twitter %>
+        <% if (u.contacts.twitter) { %>
+        <div class="cr">
+          <span class="ci">🐦</span>
+          <span class="cv"><a href="<%=u.contacts.twitter%>" target="_blank" rel="noopener">@<%=u.contacts.twitter.replace(/.*\//,'')%></a></span>
+          <div class="ca"><a class="btn-o" href="<%=u.contacts.twitter%>" target="_blank" rel="noopener">Open ↗</a></div>
+        </div>
+        <% } %>
+
+        <%# Others %>
+        <% if (u.contacts.others && u.contacts.others.length > 0) { %>
+        <div class="cr" style="align-items:flex-start;margin-top:3px">
+          <span class="ci" style="margin-top:2px">🔗</span>
+          <div class="others-row">
+            <% u.contacts.others.forEach(o => { %>
+              <a class="oc" href="<%=o.url%>" target="_blank" rel="noopener"><%=o.label%> ↗</a>
+            <% }) %>
+          </div>
+        </div>
+        <% } %>
+
+        <% if (!u.contacts.email && (!u.contacts.phones || !u.contacts.phones.length) && !u.contacts.linkedin && !u.contacts.twitter && (!u.contacts.others || !u.contacts.others.length)) { %>
+          <div class="no-contacts">No public contact info found</div>
+        <% } %>
+      </div>
+
+      <div class="card-footer">
+        <div class="footer-stats">
+          <span class="stat-item">📦 <%=u.publicRepos%></span>
+          <span class="stat-item">👥 <%=u.followers%></span>
+        </div>
+        <span class="last-seen">⏱ <%=u.lastSeen%></span>
+      </div>
+    </div>
+    <% }) %>
+  </div>
+  <% } %>
+</div>
+
+<div id="toast">Copied ✓</div>
+
+<!-- Embed contact data for download -->
+<script>
+const CONTACT_DATA = <%- JSON.stringify(users.map(u => ({
+  name:     u.name,
+  github:   u.login,
+  location: u.location,
+  email:    u.contacts.email || '',
+  phones:   (u.contacts.phones || []).map(p => p.number).join(' | '),
+  linkedin: u.contacts.linkedin || '',
+  twitter:  u.contacts.twitter  || '',
+  active:   u.active ? 'Yes' : 'No',
+  lastSeen: u.lastSeen,
+  bio:      u.bio ? u.bio.substring(0,120) : ''
+}))) %>;
+
+const SEARCH_META = {
+  q:        "<%=query.q||''%>",
+  location: "<%=query.location||''%>",
+  persona:  "<%=personaLabel||''%>",
+  stack:    "<%=stackLabel||''%>",
+  date:     new Date().toLocaleString()
+};
+
+function downloadContacts() {
+  const lines = [];
+
+  // Header
+  lines.push('='.repeat(70));
+  lines.push('  GITHUB CONTACT EXPLORER — EXPORT');
+  lines.push('='.repeat(70));
+  lines.push(`  Generated : ${SEARCH_META.date}`);
+  lines.push(`  Query     : ${SEARCH_META.q || '(any)'}`);
+  lines.push(`  Location  : ${SEARCH_META.location || '(any)'}`);
+  lines.push(`  Persona   : ${SEARCH_META.persona || 'Any Role'}`);
+  lines.push(`  Stack     : ${SEARCH_META.stack || 'All Stacks'}`);
+  lines.push(`  Total     : ${CONTACT_DATA.length} users`);
+  lines.push('='.repeat(70));
+  lines.push('');
+
+  // Contacts-only summary first
+  const withContact = CONTACT_DATA.filter(u => u.email || u.phones);
+  if (withContact.length) {
+    lines.push('── QUICK CONTACT LIST ─────────────────────────────────────────────');
+    withContact.forEach(u => {
+      const parts = [u.name || u.github];
+      if (u.email)  parts.push(`EMAIL: ${u.email}`);
+      if (u.phones) parts.push(`PHONE: ${u.phones}`);
+      if (u.location) parts.push(`[${u.location}]`);
+      lines.push(parts.join('  |  '));
+    });
+    lines.push('');
+  }
+
+  // Full details
+  lines.push('── FULL DETAILS ───────────────────────────────────────────────────');
+  CONTACT_DATA.forEach((u, i) => {
+    lines.push('');
+    lines.push(`[${i+1}] ${u.name} (@${u.github})`);
+    lines.push(`    GitHub   : https://github.com/${u.github}`);
+    if (u.location) lines.push(`    Location : ${u.location}`);
+    if (u.email)    lines.push(`    Email    : ${u.email}`);
+    if (u.phones)   lines.push(`    Phones   : ${u.phones}`);
+    if (u.linkedin) lines.push(`    LinkedIn : ${u.linkedin}`);
+    if (u.twitter)  lines.push(`    Twitter  : ${u.twitter}`);
+    lines.push(`    Active   : ${u.active}  |  Last seen: ${u.lastSeen}`);
+    if (u.bio)      lines.push(`    Bio      : ${u.bio}`);
+    lines.push('    ' + '-'.repeat(60));
+  });
+
+  lines.push('');
+  lines.push('='.repeat(70));
+  lines.push('  END OF EXPORT — GitHub Contact Explorer');
+  lines.push('='.repeat(70));
+
+  const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `github-contacts-${SEARCH_META.q||'all'}-${Date.now()}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  // Update banner
+  document.getElementById('download-banner').innerHTML =
+    '<div style="font-size:15px;font-weight:700;padding:14px 0">✅ Downloaded! Check your files.</div>';
+  setTimeout(() => {
+    const b = document.getElementById('download-banner');
+    if (b) b.classList.add('hidden');
+  }, 3000);
+}
+
+function copyText(text) {
+  navigator.clipboard.writeText(text).catch(() => {
+    const el = document.createElement('textarea');
+    el.value = text; document.body.appendChild(el); el.select();
+    document.execCommand('copy'); document.body.removeChild(el);
+  });
+  const t = document.getElementById('toast');
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 1800);
+}
+</script>
+
+</body>
+</html>
