@@ -92,12 +92,24 @@ function isLoggedIn(req, res, next) {
 }
 
 // ─── GitHub API Client ─────────────────────────────────────────────────────────
+// Only use token if it looks real (starts with ghp_, github_pat_, or gho_)
+const RAW_TOKEN = process.env.GITHUB_TOKEN || '';
+const VALID_TOKEN = /^(ghp_|github_pat_|gho_)\w{10,}/.test(RAW_TOKEN) ? RAW_TOKEN : null;
+
+if (RAW_TOKEN && !VALID_TOKEN) {
+  console.warn('⚠️  GITHUB_TOKEN looks like a placeholder — running without auth (60 req/hr).');
+} else if (VALID_TOKEN) {
+  console.log('✅ GitHub token loaded.');
+} else {
+  console.log('ℹ️  No GitHub token — running unauthenticated (60 req/hr).');
+}
+
 const githubAxios = axios.create({
   baseURL: 'https://api.github.com',
   headers: {
     Accept: 'application/vnd.github.v3+json',
     'User-Agent': 'GitHub-Contact-Explorer/2.1',
-    ...(process.env.GITHUB_TOKEN && { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` })
+    ...(VALID_TOKEN && { Authorization: `Bearer ${VALID_TOKEN}` })
   },
   timeout: 15000
 });
